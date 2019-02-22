@@ -26,6 +26,7 @@ extern crate num_bigint;
 extern crate secp256k1;
 extern crate serde;
 extern crate serde_json;
+extern crate rust_ocean;
 
 pub extern crate ocean_rpc_json;
 pub use ocean_rpc_json as json;

@@ -12,6 +12,7 @@
 //! Ocean node.
 extern crate bitcoin;
 extern crate ocean_rpc;
+extern crate rust_ocean;
 
 use ocean_rpc::{RpcApi, Client, Error};
 
@@ -27,21 +28,14 @@ fn main_result() -> Result<(), Error> {
     let rpc = Client::new(url, user, pass);
 
     let blockchain_info = rpc.get_blockchain_info()?;
-    println!("blockchain info:\n{:?}", blockchain_info);
+    println!("info\n{:?}", blockchain_info);
 
     let best_block_hash = rpc.get_best_block_hash()?;
     println!("best block hash: {}", best_block_hash);
-    let bestblockcount = rpc.get_block_count()?;
-    println!("best block height: {}", bestblockcount);
-    let best_block_hash_by_height = rpc.get_block_hash(bestblockcount)?;
-    println!("best block hash by height: {}", best_block_hash_by_height);
-    assert_eq!(best_block_hash_by_height, best_block_hash);
-
-    // Commenting out until rust-ocean integration
-    // let bitcoin_block: bitcoin::Block = rpc.get_by_id(&best_block_hash)?;
-    // println!("best block hash by `get`: {}", bitcoin_block.header.prev_blockhash);
-    // let bitcoin_tx: bitcoin::Transaction = rpc.get_by_id(&bitcoin_block.txdata[0].txid())?;
-    // println!("tx by `get`: {}", bitcoin_tx.txid());
+    let ocean_block: rust_ocean::Block = rpc.get_by_id(&best_block_hash)?;
+    println!("block\n{:?}", ocean_block);
+    let ocean_tx: rust_ocean::Transaction = rpc.get_by_id(&ocean_block.txdata[0].txid())?;
+    println!("tx\n{:?}", ocean_tx);
 
     Ok(())
 }

@@ -23,7 +23,7 @@ pub trait Queryable<C: RpcApi>: Sized {
     fn query(rpc: &C, id: &Self::Id) -> Result<Self>;
 }
 
-impl<C: RpcApi> Queryable<C> for bitcoin::blockdata::block::Block {
+impl<C: RpcApi> Queryable<C> for rust_ocean::Block {
     type Id = Sha256dHash;
 
     fn query(rpc: &C, id: &Self::Id) -> Result<Self> {
@@ -34,7 +34,7 @@ impl<C: RpcApi> Queryable<C> for bitcoin::blockdata::block::Block {
     }
 }
 
-impl<C: RpcApi> Queryable<C> for bitcoin::blockdata::transaction::Transaction {
+impl<C: RpcApi> Queryable<C> for rust_ocean::Transaction {
     type Id = Sha256dHash;
 
     fn query(rpc: &C, id: &Self::Id) -> Result<Self> {

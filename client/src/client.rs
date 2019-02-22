@@ -17,7 +17,8 @@ use serde;
 use serde_json;
 
 use bitcoin::util::hash::Sha256dHash;
-use bitcoin::{Address, Block, BlockHeader, Transaction};
+use bitcoin::{Address};
+use rust_ocean::{Block, BlockHeader, Transaction};
 use bitcoin_amount::Amount;
 use log::Level::Trace;
 use num_bigint::BigUint;

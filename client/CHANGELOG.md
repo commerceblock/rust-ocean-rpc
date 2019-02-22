@@ -9,3 +9,7 @@ CHANGELOG
 - Client methods take `&self` instead of `&mut self`
 - added `create_raw_transaction`
 - updated `get_new_address` to Core 0.16 spec
+
+# v0.3.0
+
+- configure for Ocean

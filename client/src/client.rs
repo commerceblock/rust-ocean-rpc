@@ -535,13 +535,13 @@ pub trait RpcApi: Sized {
     }
 }
 
-/// Client implements a JSON-RPC client for the Bitcoin Core daemon or compatible APIs.
+/// Client implements a JSON-RPC client for the Ocean daemon or compatible APIs.
 pub struct Client {
     client: jsonrpc::client::Client,
 }
 
 impl Client {
-    /// Creates a client to a bitcoind JSON-RPC server.
+    /// Creates a client to a oceand JSON-RPC server.
     pub fn new(url: String, user: Option<String>, pass: Option<String>) -> Self {
         debug_assert!(pass.is_none() || user.is_some());
 

@@ -15,7 +15,7 @@ use bitcoin::util::hash::Sha256dHash;
 use client::RpcApi;
 use client::Result;
 
-/// A type that can be queried from Bitcoin Core.
+/// A type that can be queried from Ocean.
 pub trait Queryable<C: RpcApi>: Sized {
     /// Type of the ID used to query the item.
     type Id;

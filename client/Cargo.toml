@@ -1,24 +1,25 @@
 [package]
-name = "bitcoincore-rpc"
-version = "0.2.0"
+name = "ocean-rpc"
+version = "0.3.0"
 authors = [
     "Steven Roose <steven@stevenroose.org>",
     "Jean Pierre Dudey <jeandudey@hotmail.com>",
-    "Dawid Ciężarkiewicz <dpc@dpc.pw>"
+    "Dawid Ciężarkiewicz <dpc@dpc.pw>",
+    "Nikolaos Kostoulas <nikolaos@commerceblock.com>"
 ]
 license = "CC0-1.0"
-homepage = "https://github.com/rust-bitcoin/rust-bitcoincore-rpc/"
-repository = "https://github.com/rust-bitcoin/rust-bitcoincore-rpc/"
-description = "RPC client library for the Bitcoin Core JSON-RPC API."
-keywords = [ "crypto", "bitcoin", "bitcoin-core", "rpc" ]
+homepage = "https://github.com/commerceblock/rust-ocean-rpc/"
+repository = "https://github.com/commerceblock/rust-ocean-rpc/"
+description = "RPC client library for the Ocean JSON-RPC API."
+keywords = [ "crypto", "bitcoin", "bitcoin-core", "rpc", "ocean", "elements" ]
 readme = "README.md"
 
 [lib]
-name = "bitcoincore_rpc"
+name = "ocean_rpc"
 path = "src/lib.rs"
 
 [dependencies]
-bitcoincore-rpc-json = { version = "0.2", path = "../json" }
+ocean-rpc-json = { version = "0.3", path = "../json" }
 
 log = "0.4.5"
 jsonrpc = "0.10"

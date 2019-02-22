@@ -8,12 +8,12 @@
 // If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 //
 
-//! # Rust Client for Bitcoin Core API
+//! # Rust Client for Ocean API
 //!
-//! This is a client library for the Bitcoin Core JSON-RPC API.
+//! This is a client library for the Ocean JSON-RPC API.
 //!
 
-#![crate_name = "bitcoincore_rpc_json"]
+#![crate_name = "ocean_rpc_json"]
 #![crate_type = "rlib"]
 
 #[macro_use]
@@ -318,12 +318,8 @@ pub struct GetBlockchainInfoResult {
     pub mediantime: u64,
     /// Estimate of verification progress [0..1]
     pub verificationprogress: f64,
-    /// Estimate of whether this node is in Initial Block Download mode
-    pub initialblockdownload: bool,
     /// Total amount of work in active chain, in hexadecimal
     pub chainwork: String,
-    /// The estimated size of the block and undo files on disk
-    pub size_on_disk: u64,
     /// If the blocks are subject to pruning
     pub pruned: bool,
     /// Lowest-height complete block stored (only present if pruning is enabled)
@@ -332,13 +328,9 @@ pub struct GetBlockchainInfoResult {
     pub automatic_pruning: Option<bool>,
     /// The target size used by pruning (only present if automatic pruning is enabled)
     pub prune_target_size: Option<u64>,
-    /// Status of softforks in progress
-    pub softforks: Vec<Softfork>,
     // TODO: add a type?
     /// Status of BIP9 softforks in progress
     pub bip9_softforks: Value,
-    /// Any network and blockchain warnings.
-    pub warnings: String,
 }
 
 /// Status of a softfork

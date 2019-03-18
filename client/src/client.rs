@@ -464,13 +464,15 @@ pub trait RpcApi: Sized {
         comment: Option<&str>,
         comment_to: Option<&str>,
         substract_fee: Option<bool>,
+        assetlabel: Option<&str>,
     ) -> Result<Sha256dHash> {
         let mut args = [
             into_json(addr)?,
             into_json(amount)?,
             opt_into_json(comment)?,
             opt_into_json(comment_to)?,
-            opt_into_json(substract_fee)?
+            opt_into_json(substract_fee)?,
+            opt_into_json(assetlabel)?
         ];
         self.call("sendtoaddress", handle_defaults(&mut args, &["".into(), "".into(), null()]))
     }

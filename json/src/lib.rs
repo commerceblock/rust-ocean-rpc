@@ -133,10 +133,9 @@ pub struct GetRawTransactionResultVin {
 pub struct GetRawTransactionResultVoutScriptPubKey {
     pub asm: String,
     pub hex: String,
-    pub req_sigs: usize,
     #[serde(rename = "type")]
     pub type_: String, //TODO(stevenroose) consider enum
-    pub addresses: Vec<String>, // TODO: Address for Ocean
+    pub addresses: Option<Vec<String>>, // TODO: Address for Ocean
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
@@ -162,10 +161,10 @@ pub struct GetRawTransactionResult {
     pub locktime: u32,
     pub vin: Vec<GetRawTransactionResultVin>,
     pub vout: Vec<GetRawTransactionResultVout>,
-    pub blockhash: Sha256dHash,
-    pub confirmations: usize,
-    pub time: usize,
-    pub blocktime: usize,
+    pub blockhash: Option<Sha256dHash>,
+    pub confirmations: Option<usize>,
+    pub time: Option<usize>,
+    pub blocktime: Option<usize>,
 }
 
 /// Enum to represent the BIP125 replacable status for a transaction.
@@ -840,9 +839,8 @@ mod tests {
 				script_pub_key: GetRawTransactionResultVoutScriptPubKey{
 					asm: "OP_DUP OP_HASH160 f602e88b2b5901d8aab15ebe4a97cf92ec6e03b3 OP_EQUALVERIFY OP_CHECKSIG".into(),
 					hex: "76a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac".into(),
-					req_sigs: 1,
 					type_: "pubkeyhash".into(),
-					addresses: vec!["n3wk1KcFnVibGdqQa6jbwoR8gbVtRbYM4M".into()],
+					addresses: Some(vec!["n3wk1KcFnVibGdqQa6jbwoR8gbVtRbYM4M".into()]),
 				},
 			}, GetRawTransactionResultVout{
 				value: Amount::from_btc(1.0),
@@ -850,15 +848,14 @@ mod tests {
 				script_pub_key: GetRawTransactionResultVoutScriptPubKey{
 					asm: "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG".into(),
 					hex: "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac".into(),
-					req_sigs: 1,
 					type_: "pubkeyhash".into(),
-					addresses: vec!["mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA".into()],
+					addresses: Some(vec!["mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA".into()]),
 				},
 			}],
-			blockhash: hash!("00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765"),
-			confirmations: 29446,
-			time: 1534935138,
-			blocktime: 1534935138,
+			blockhash: Some(hash!("00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765")),
+			confirmations: Some(29446),
+			time: Some(1534935138),
+			blocktime: Some(1534935138),
 		};
         let json = r#"
 			{
@@ -900,7 +897,6 @@ mod tests {
 				  "scriptPubKey": {
 					"asm": "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG",
 					"hex": "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac",
-					"reqSigs": 1,
 					"type": "pubkeyhash",
 					"addresses": [
 					  "mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA"
@@ -989,9 +985,8 @@ mod tests {
 			script_pub_key: GetRawTransactionResultVoutScriptPubKey{
 				asm: "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG".into(),
 				hex: "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac".into(),
-				req_sigs: 1,
 				type_: "pubkeyhash".into(),
-				addresses: vec!["mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA".into()],
+				addresses: Some(vec!["mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA".into()]),
 			},
 			coinbase: false,
 		};
@@ -1003,7 +998,6 @@ mod tests {
 			  "scriptPubKey": {
 				"asm": "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG",
 				"hex": "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac",
-				"reqSigs": 1,
 				"type": "pubkeyhash",
 				"addresses": [
 				  "mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA"

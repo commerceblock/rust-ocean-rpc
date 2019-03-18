@@ -136,7 +136,7 @@ pub struct GetRawTransactionResultVoutScriptPubKey {
     pub req_sigs: usize,
     #[serde(rename = "type")]
     pub type_: String, //TODO(stevenroose) consider enum
-    pub addresses: Vec<Address>,
+    pub addresses: Vec<String>, // TODO: Address for Ocean
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
@@ -842,7 +842,7 @@ mod tests {
 					hex: "76a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac".into(),
 					req_sigs: 1,
 					type_: "pubkeyhash".into(),
-					addresses: vec![addr!("n3wk1KcFnVibGdqQa6jbwoR8gbVtRbYM4M")],
+					addresses: vec!["n3wk1KcFnVibGdqQa6jbwoR8gbVtRbYM4M".into()],
 				},
 			}, GetRawTransactionResultVout{
 				value: Amount::from_btc(1.0),
@@ -852,7 +852,7 @@ mod tests {
 					hex: "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac".into(),
 					req_sigs: 1,
 					type_: "pubkeyhash".into(),
-					addresses: vec![addr!("mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA")],
+					addresses: vec!["mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA".into()],
 				},
 			}],
 			blockhash: hash!("00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765"),
@@ -991,7 +991,7 @@ mod tests {
 				hex: "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac".into(),
 				req_sigs: 1,
 				type_: "pubkeyhash".into(),
-				addresses: vec![addr!("mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA")],
+				addresses: vec!["mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA".into()],
 			},
 			coinbase: false,
 		};

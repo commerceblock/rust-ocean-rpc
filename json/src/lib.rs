@@ -253,16 +253,16 @@ pub struct ListUnspentResult {
     pub script_pub_key: Script,
     #[serde(deserialize_with = "deserialize_amount")]
     pub amount: Amount,
-    pub amountcommitment: Option<Sha256dHash>,
-    pub asset: Sha256dHash,
-    pub assetcommitment: Option<Sha256dHash>,
+    pub amountcommitment: Option<sha256d::Hash>,
+    pub asset: sha256d::Hash,
+    pub assetcommitment: Option<sha256d::Hash>,
     pub assetlabel: Option<String>,
     pub confirmations: usize,
     pub redeem_script: Option<Script>,
     pub spendable: bool,
     pub solvable: bool,
-    pub blinder: Sha256dHash,
-    pub assetblinder: Sha256dHash,
+    pub blinder: sha256d::Hash,
+    pub assetblinder: sha256d::Hash,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]

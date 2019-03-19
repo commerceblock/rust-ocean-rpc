@@ -320,14 +320,14 @@ pub trait RpcApi: Sized {
         &self,
         utxos: &[json::CreateRawTransactionInput],
         outs: Option<&HashMap<String, f64>>,
-        locktime: Option<i64>,
-        replaceable: Option<bool>,
+        outs_assets: Option<&HashMap<String, String>>,
+        locktime: Option<i64>
     ) -> Result<String> {
         let mut args = [
             into_json(utxos)?,
             opt_into_json(outs)?,
             opt_into_json(locktime)?,
-            opt_into_json(replaceable)?,
+            opt_into_json(outs_assets)?,
         ];
         let defaults =
             [into_json::<&[json::CreateRawTransactionInput]>(&[])?, into_json(0i64)?, null()];
@@ -338,10 +338,10 @@ pub trait RpcApi: Sized {
         &self,
         utxos: &[json::CreateRawTransactionInput],
         outs: Option<&HashMap<String, f64>>,
+        outs_assets: Option<&HashMap<String, String>>,
         locktime: Option<i64>,
-        replaceable: Option<bool>,
     ) -> Result<Transaction> {
-        let hex: String = self.create_raw_transaction_hex(utxos, outs, locktime, replaceable)?;
+        let hex: String = self.create_raw_transaction_hex(utxos, outs, outs_assets, locktime)?;
         let bytes = hex::decode(hex)?;
         Ok(bitcoin::consensus::encode::deserialize(&bytes)?)
     }

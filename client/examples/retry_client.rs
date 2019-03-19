@@ -9,12 +9,12 @@
 //
 
 extern crate bitcoin;
-extern crate bitcoincore_rpc;
+extern crate ocean_rpc;
 extern crate serde;
 extern crate serde_json;
 extern crate jsonrpc;
 
-use bitcoincore_rpc::{RpcApi, Client, Error, Result};
+use ocean_rpc::{RpcApi, Client, Error, Result};
 
 pub struct RetryClient {
     client: Client,

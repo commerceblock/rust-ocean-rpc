@@ -17,7 +17,8 @@ use serde;
 use serde_json;
 
 use bitcoin_hashes::sha256d;
-use bitcoin::{Address, Block, BlockHeader, Transaction};
+use bitcoin::{Address};
+use rust_ocean::{Block, BlockHeader, Transaction};
 use bitcoin_amount::Amount;
 use log::Level::Trace;
 use num_bigint::BigUint;
@@ -319,14 +320,14 @@ pub trait RpcApi: Sized {
         &self,
         utxos: &[json::CreateRawTransactionInput],
         outs: Option<&HashMap<String, f64>>,
-        locktime: Option<i64>,
-        replaceable: Option<bool>,
+        outs_assets: Option<&HashMap<String, String>>,
+        locktime: Option<i64>
     ) -> Result<String> {
         let mut args = [
             into_json(utxos)?,
             opt_into_json(outs)?,
             opt_into_json(locktime)?,
-            opt_into_json(replaceable)?,
+            opt_into_json(outs_assets)?,
         ];
         let defaults =
             [into_json::<&[json::CreateRawTransactionInput]>(&[])?, into_json(0i64)?, null()];
@@ -337,10 +338,10 @@ pub trait RpcApi: Sized {
         &self,
         utxos: &[json::CreateRawTransactionInput],
         outs: Option<&HashMap<String, f64>>,
+        outs_assets: Option<&HashMap<String, String>>,
         locktime: Option<i64>,
-        replaceable: Option<bool>,
     ) -> Result<Transaction> {
-        let hex: String = self.create_raw_transaction_hex(utxos, outs, locktime, replaceable)?;
+        let hex: String = self.create_raw_transaction_hex(utxos, outs, outs_assets, locktime)?;
         let bytes = hex::decode(hex)?;
         Ok(bitcoin::consensus::encode::deserialize(&bytes)?)
     }
@@ -463,13 +464,15 @@ pub trait RpcApi: Sized {
         comment: Option<&str>,
         comment_to: Option<&str>,
         substract_fee: Option<bool>,
+        assetlabel: Option<&str>,
     ) -> Result<sha256d::Hash> {
         let mut args = [
             into_json(addr)?,
             into_json(amount)?,
             opt_into_json(comment)?,
             opt_into_json(comment_to)?,
-            opt_into_json(substract_fee)?
+            opt_into_json(substract_fee)?,
+            opt_into_json(assetlabel)?
         ];
         self.call("sendtoaddress", handle_defaults(&mut args, &["".into(), "".into(), null()]))
     }
@@ -535,13 +538,13 @@ pub trait RpcApi: Sized {
     }
 }
 
-/// Client implements a JSON-RPC client for the Bitcoin Core daemon or compatible APIs.
+/// Client implements a JSON-RPC client for the Ocean daemon or compatible APIs.
 pub struct Client {
     client: jsonrpc::client::Client,
 }
 
 impl Client {
-    /// Creates a client to a bitcoind JSON-RPC server.
+    /// Creates a client to a oceand JSON-RPC server.
     pub fn new(url: String, user: Option<String>, pass: Option<String>) -> Self {
         debug_assert!(pass.is_none() || user.is_some());
 

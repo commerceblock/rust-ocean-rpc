@@ -8,12 +8,12 @@
 // If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 //
 
-//! # Rust Client for Bitcoin Core API
+//! # Rust Client for Ocean API
 //!
-//! This is a client library for the Bitcoin Core JSON-RPC API.
+//! This is a client library for the Ocean JSON-RPC API.
 //!
 
-#![crate_name = "bitcoincore_rpc_json"]
+#![crate_name = "ocean_rpc_json"]
 #![crate_type = "rlib"]
 
 #[macro_use]
@@ -134,10 +134,9 @@ pub struct GetRawTransactionResultVin {
 pub struct GetRawTransactionResultVoutScriptPubKey {
     pub asm: String,
     pub hex: String,
-    pub req_sigs: usize,
     #[serde(rename = "type")]
     pub type_: String, //TODO(stevenroose) consider enum
-    pub addresses: Vec<Address>,
+    pub addresses: Option<Vec<String>>, // TODO: Address for Ocean
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
@@ -163,10 +162,10 @@ pub struct GetRawTransactionResult {
     pub locktime: u32,
     pub vin: Vec<GetRawTransactionResultVin>,
     pub vout: Vec<GetRawTransactionResultVout>,
-    pub blockhash: sha256d::Hash,
-    pub confirmations: usize,
-    pub time: usize,
-    pub blocktime: usize,
+    pub blockhash: Option<sha256d::Hash>,
+    pub confirmations: Option<usize>,
+    pub time: Option<usize>,
+    pub blocktime: Option<usize>,
 }
 
 /// Enum to represent the BIP125 replacable status for a transaction.
@@ -249,15 +248,21 @@ pub struct GetTxOutResult {
 pub struct ListUnspentResult {
     pub txid: sha256d::Hash,
     pub vout: u32,
-    pub address: Address,
+    pub address: String, // TODO: Address for Ocean
+    pub account: Option<String>,
     pub script_pub_key: Script,
     #[serde(deserialize_with = "deserialize_amount")]
     pub amount: Amount,
+    pub amountcommitment: Option<Sha256dHash>,
+    pub asset: Sha256dHash,
+    pub assetcommitment: Option<Sha256dHash>,
+    pub assetlabel: Option<String>,
     pub confirmations: usize,
     pub redeem_script: Option<Script>,
     pub spendable: bool,
     pub solvable: bool,
-    pub safe: bool,
+    pub blinder: Sha256dHash,
+    pub assetblinder: Sha256dHash,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
@@ -305,12 +310,8 @@ pub struct GetBlockchainInfoResult {
     pub mediantime: u64,
     /// Estimate of verification progress [0..1]
     pub verificationprogress: f64,
-    /// Estimate of whether this node is in Initial Block Download mode
-    pub initialblockdownload: bool,
     /// Total amount of work in active chain, in hexadecimal
     pub chainwork: String,
-    /// The estimated size of the block and undo files on disk
-    pub size_on_disk: u64,
     /// If the blocks are subject to pruning
     pub pruned: bool,
     /// Lowest-height complete block stored (only present if pruning is enabled)
@@ -319,13 +320,9 @@ pub struct GetBlockchainInfoResult {
     pub automatic_pruning: Option<bool>,
     /// The target size used by pruning (only present if automatic pruning is enabled)
     pub prune_target_size: Option<u64>,
-    /// Status of softforks in progress
-    pub softforks: Vec<Softfork>,
     // TODO: add a type?
     /// Status of BIP9 softforks in progress
     pub bip9_softforks: Value,
-    /// Any network and blockchain warnings.
-    pub warnings: String,
 }
 
 /// Status of a softfork
@@ -830,9 +827,8 @@ mod tests {
 				script_pub_key: GetRawTransactionResultVoutScriptPubKey{
 					asm: "OP_DUP OP_HASH160 f602e88b2b5901d8aab15ebe4a97cf92ec6e03b3 OP_EQUALVERIFY OP_CHECKSIG".into(),
 					hex: "76a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac".into(),
-					req_sigs: 1,
 					type_: "pubkeyhash".into(),
-					addresses: vec![addr!("n3wk1KcFnVibGdqQa6jbwoR8gbVtRbYM4M")],
+					addresses: Some(vec!["n3wk1KcFnVibGdqQa6jbwoR8gbVtRbYM4M".into()]),
 				},
 			}, GetRawTransactionResultVout{
 				value: Amount::from_btc(1.0),
@@ -840,15 +836,14 @@ mod tests {
 				script_pub_key: GetRawTransactionResultVoutScriptPubKey{
 					asm: "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG".into(),
 					hex: "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac".into(),
-					req_sigs: 1,
 					type_: "pubkeyhash".into(),
-					addresses: vec![addr!("mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA")],
+					addresses: Some(vec!["mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA".into()]),
 				},
 			}],
-			blockhash: hash!("00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765"),
-			confirmations: 29446,
-			time: 1534935138,
-			blocktime: 1534935138,
+			blockhash: Some(hash!("00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765")),
+			confirmations: Some(29446),
+			time: Some(1534935138),
+			blocktime: Some(1534935138),
 		};
         let json = r#"
 			{
@@ -890,7 +885,6 @@ mod tests {
 				  "scriptPubKey": {
 					"asm": "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG",
 					"hex": "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac",
-					"reqSigs": 1,
 					"type": "pubkeyhash",
 					"addresses": [
 					  "mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA"
@@ -979,9 +973,8 @@ mod tests {
 			script_pub_key: GetRawTransactionResultVoutScriptPubKey{
 				asm: "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG".into(),
 				hex: "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac".into(),
-				req_sigs: 1,
 				type_: "pubkeyhash".into(),
-				addresses: vec![addr!("mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA")],
+				addresses: Some(vec!["mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA".into()]),
 			},
 			coinbase: false,
 		};
@@ -993,7 +986,6 @@ mod tests {
 			  "scriptPubKey": {
 				"asm": "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG",
 				"hex": "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac",
-				"reqSigs": 1,
 				"type": "pubkeyhash",
 				"addresses": [
 				  "mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA"
@@ -1010,30 +1002,38 @@ mod tests {
     #[test]
     fn test_ListUnspentResult() {
         let expected = ListUnspentResult {
-            txid: hash!("1e66743d6384496fe631501ba3f5b788d4bc193980b847f9e7d4e20d9202489f"),
-            vout: 1,
-            address: addr!("2N56rvr9bGj862UZMNQhv57nU4GXfMof1Xu"),
-            script_pub_key: script!("a914820c9a334a89cb72bc4abfce96efc1fb202cdd9087"),
-            amount: Amount::from_btc(2.0),
-            confirmations: 29503,
-            redeem_script: Some(script!("0014b1a84f7a5c60e58e2c6eee4b33e7585483399af0")),
+            txid: hash!("5a6a5685c04974448c9c80fb170ae7ca20c02bddd97d306ac0314b3a12b85cba"),
+            vout: 37,
+            address: "2drnhKrVLEbjgD4sBdmFkTByNjDCJpFqT4W".into(),
+            account: Some("".into()),
+            script_pub_key: script!("76a914be70510653867b1c648b43cfb3b0edf8420f08d788ac"),
+            amount: Amount::from_btc(210000.0),
+            amountcommitment: None,
+            asset: hash!("9fda3adca5a106acec3378cac65698c8138f3531b274d34dad131d0423f5cad5"),
+            assetcommitment: None,
+            assetlabel: Some("CBT".into()),
+            confirmations: 1,
+            redeem_script: None,
             spendable: true,
             solvable: true,
-            safe: true,
+            blinder: hash!("0000000000000000000000000000000000000000000000000000000000000000"),
+            assetblinder: hash!("0000000000000000000000000000000000000000000000000000000000000000"),
         };
         let json = r#"
 			{
-			  "txid": "1e66743d6384496fe631501ba3f5b788d4bc193980b847f9e7d4e20d9202489f",
-			  "vout": 1,
-			  "address": "2N56rvr9bGj862UZMNQhv57nU4GXfMof1Xu",
-			  "label": "",
-			  "redeemScript": "0014b1a84f7a5c60e58e2c6eee4b33e7585483399af0",
-			  "scriptPubKey": "a914820c9a334a89cb72bc4abfce96efc1fb202cdd9087",
-			  "amount": 2.00000000,
-			  "confirmations": 29503,
-			  "spendable": true,
-			  "solvable": true,
-			  "safe": true
+                "txid": "5a6a5685c04974448c9c80fb170ae7ca20c02bddd97d306ac0314b3a12b85cba",
+                "vout": 37,
+                "address": "2drnhKrVLEbjgD4sBdmFkTByNjDCJpFqT4W",
+                "account": "",
+                "scriptPubKey": "76a914be70510653867b1c648b43cfb3b0edf8420f08d788ac",
+                "amount": 210000.00000000,
+                "asset": "9fda3adca5a106acec3378cac65698c8138f3531b274d34dad131d0423f5cad5",
+                "assetlabel": "CBT",
+                "confirmations": 1,
+                "spendable": true,
+                "solvable": true,
+                "blinder": "0000000000000000000000000000000000000000000000000000000000000000",
+                "assetblinder": "0000000000000000000000000000000000000000000000000000000000000000"
 			}
 		"#;
         assert_eq!(expected, serde_json::from_str(json).unwrap());

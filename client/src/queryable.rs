@@ -15,7 +15,7 @@ use bitcoin_hashes::sha256d;
 use client::RpcApi;
 use client::Result;
 
-/// A type that can be queried from Bitcoin Core.
+/// A type that can be queried from Ocean.
 pub trait Queryable<C: RpcApi>: Sized {
     /// Type of the ID used to query the item.
     type Id;
@@ -23,7 +23,7 @@ pub trait Queryable<C: RpcApi>: Sized {
     fn query(rpc: &C, id: &Self::Id) -> Result<Self>;
 }
 
-impl<C: RpcApi> Queryable<C> for bitcoin::blockdata::block::Block {
+impl<C: RpcApi> Queryable<C> for rust_ocean::Block {
     type Id = sha256d::Hash;
 
     fn query(rpc: &C, id: &Self::Id) -> Result<Self> {
@@ -34,7 +34,7 @@ impl<C: RpcApi> Queryable<C> for bitcoin::blockdata::block::Block {
     }
 }
 
-impl<C: RpcApi> Queryable<C> for bitcoin::blockdata::transaction::Transaction {
+impl<C: RpcApi> Queryable<C> for rust_ocean::Transaction {
     type Id = sha256d::Hash;
 
     fn query(rpc: &C, id: &Self::Id) -> Result<Self> {

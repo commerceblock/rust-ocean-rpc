@@ -8,12 +8,12 @@
 // If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 //
 
-//! # Rust Client for Bitcoin Core API
+//! # Rust Client for Ocean API
 //!
-//! This is a client library for the Bitcoin Core JSON-RPC API.
+//! This is a client library for the Ocean JSON-RPC API.
 //!
 
-#![crate_name = "bitcoincore_rpc"]
+#![crate_name = "ocean_rpc"]
 #![crate_type = "rlib"]
 
 #[macro_use]
@@ -27,10 +27,11 @@ extern crate num_bigint;
 extern crate secp256k1;
 extern crate serde;
 extern crate serde_json;
+extern crate rust_ocean;
 
-pub extern crate bitcoincore_rpc_json;
-pub use bitcoincore_rpc_json as json;
-pub use bitcoincore_rpc_json::getters::*;
+pub extern crate ocean_rpc_json;
+pub use ocean_rpc_json as json;
+pub use ocean_rpc_json::getters::*;
 
 mod client;
 mod error;

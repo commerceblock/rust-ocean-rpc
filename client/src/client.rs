@@ -406,6 +406,17 @@ pub trait RpcApi: Sized {
         self.call("verifymessage", &args)
     }
 
+    fn get_requests(
+        &self,
+        genesis_hash: Option<sha256d::Hash>,
+    ) -> Result<Vec<json::GetRequestsResult>> {
+        self.call("getrequests", &[opt_into_json(genesis_hash)?])
+    }
+
+    fn get_request_bids(&self, txid: sha256d::Hash) -> Result<json::GetRequestBidsResult> {
+        self.call("getnewaddress", &[into_json(txid)?])
+    }
+
     /// Generate new address under own control
     ///
     /// If 'account' is specified (DEPRECATED), it is added to the address book

@@ -408,12 +408,12 @@ pub trait RpcApi: Sized {
 
     fn get_requests(
         &self,
-        genesis_hash: Option<sha256d::Hash>,
+        genesis_hash: Option<&sha256d::Hash>,
     ) -> Result<Vec<json::GetRequestsResult>> {
         self.call("getrequests", &[opt_into_json(genesis_hash)?])
     }
 
-    fn get_request_bids(&self, txid: sha256d::Hash) -> Result<json::GetRequestBidsResult> {
+    fn get_request_bids(&self, txid: &sha256d::Hash) -> Result<json::GetRequestBidsResult> {
         self.call("getnewaddress", &[into_json(txid)?])
     }
 

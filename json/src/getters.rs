@@ -8,8 +8,8 @@
 // If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 //
 
-use std::fmt;
 use std::error;
+use std::fmt;
 
 use bitcoin::consensus::encode as btc_encode;
 use bitcoin::{Script, Transaction};
@@ -40,7 +40,9 @@ impl fmt::Display for GetterError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             GetterError::FromHex(ref e) => write!(f, "hex decode error: {}", e),
-            GetterError::BitcoinSerialization(ref e) => write!(f, "Bitcoin serialization error: {}", e),
+            GetterError::BitcoinSerialization(ref e) => {
+                write!(f, "Bitcoin serialization error: {}", e)
+            }
         }
     }
 }

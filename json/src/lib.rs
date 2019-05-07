@@ -34,8 +34,8 @@ use std::str::FromStr;
 
 use bitcoin::blockdata::script::Script;
 use bitcoin::util::address::Address;
-use bitcoin_hashes::sha256d;
 use bitcoin_amount::Amount;
+use bitcoin_hashes::sha256d;
 use num_bigint::BigUint;
 use secp256k1::PublicKey;
 use serde::de::Error as SerdeError;
@@ -630,8 +630,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json;
     use bitcoin_hashes::hex::FromHex;
+    use serde_json;
 
     macro_rules! deserializer {
         ($j:expr) => {

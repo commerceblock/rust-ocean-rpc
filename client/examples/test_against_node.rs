@@ -14,7 +14,7 @@ extern crate bitcoin;
 extern crate ocean_rpc;
 extern crate rust_ocean;
 
-use ocean_rpc::{RpcApi, Client, Error};
+use ocean_rpc::{Client, Error, RpcApi};
 
 fn main_result() -> Result<(), Error> {
     let mut args = std::env::args();
@@ -43,6 +43,6 @@ fn main_result() -> Result<(), Error> {
 fn main() {
     match main_result() {
         Err(e) => println!("{}", e),
-        _ => ()
+        _ => (),
     };
 }

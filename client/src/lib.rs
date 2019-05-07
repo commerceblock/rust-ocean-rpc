@@ -24,10 +24,10 @@ extern crate bitcoin_hashes;
 extern crate hex;
 extern crate jsonrpc;
 extern crate num_bigint;
+extern crate rust_ocean;
 extern crate secp256k1;
 extern crate serde;
 extern crate serde_json;
-extern crate rust_ocean;
 
 pub extern crate ocean_rpc_json;
 pub use ocean_rpc_json as json;

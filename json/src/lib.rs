@@ -34,8 +34,8 @@ use std::str::FromStr;
 
 use bitcoin::blockdata::script::Script;
 use bitcoin::util::address::Address;
-use bitcoin_hashes::sha256d;
 use bitcoin_amount::Amount;
+use bitcoin_hashes::sha256d;
 use num_bigint::BigUint;
 use secp256k1::PublicKey;
 use serde::de::Error as SerdeError;
@@ -290,6 +290,49 @@ pub struct TestMempoolAccept {
     pub allowed: bool,
     #[serde(rename = "reject-reason")]
     pub reject_reason: String,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetRequestsResult {
+    pub genesis_block: sha256d::Hash,
+    pub start_block_height: u32,
+    pub end_block_height: u32,
+    pub confirmed_block_height: u32,
+    pub num_tickets: u32,
+    pub decay_const: u32,
+    pub fee_percentage: u32,
+    #[serde(deserialize_with = "deserialize_amount")]
+    pub start_price: Amount,
+    #[serde(deserialize_with = "deserialize_amount")]
+    pub auction_price: Amount,
+    pub txid: sha256d::Hash,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetRequestBidsResultBid {
+    pub txid: sha256d::Hash,
+    #[serde(deserialize_with = "deserialize_pubkey")]
+    pub fee_pub_key: PublicKey,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetRequestBidsResult {
+    pub genesis_block: sha256d::Hash,
+    pub start_block_height: u32,
+    pub end_block_height: u32,
+    pub confirmed_block_height: u32,
+    pub num_tickets: u32,
+    pub decay_const: u32,
+    pub fee_percentage: u32,
+    #[serde(deserialize_with = "deserialize_amount")]
+    pub start_price: Amount,
+    #[serde(deserialize_with = "deserialize_amount")]
+    pub auction_price: Amount,
+    pub txid: sha256d::Hash,
+    pub bids: Vec<GetRequestBidsResultBid>,
 }
 
 /// Models the result of "getblockchaininfo"
@@ -572,6 +615,17 @@ impl<'a> serde::Serialize for PubKeyOrAddress<'a> {
 
 // Custom deserializer functions.
 
+/// deserialize_pubkey deserializes a secp256k1 pubkey from a string
+/// PublicKey type.
+fn deserialize_pubkey<'de, D>(deserializer: D) -> Result<PublicKey, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(deserializer)?;
+    PublicKey::from_str(s.as_ref())
+        .map_err(|_| D::Error::custom(&format!("error parsing pubkey: {}", s)))
+}
+
 /// deserialize_amount deserializes a BTC-denominated floating point Bitcoin amount into the
 /// Amount type.
 fn deserialize_amount<'de, D>(deserializer: D) -> Result<Amount, D::Error>
@@ -630,8 +684,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json;
     use bitcoin_hashes::hex::FromHex;
+    use serde_json;
 
     macro_rules! deserializer {
         ($j:expr) => {
@@ -1000,6 +1054,85 @@ mod tests {
     }
 
     #[test]
+    fn test_GetRequestsResult() {
+        let expected = GetRequestsResult {
+            genesis_block: hash!(
+                "967da0e138b1014173844ee0e4d557ff8a2463b14fcaeab18f6a63aa7c7e1d05"
+            ),
+            start_block_height: 105,
+            end_block_height: 120,
+            confirmed_block_height: 30,
+            num_tickets: 50,
+            decay_const: 10000,
+            fee_percentage: 4,
+            start_price: Amount::from_btc(0.01),
+            auction_price: Amount::from_btc(0.008),
+            txid: hash!("aabbccddeeff06acec3378cac65698c8138f3531b274d34dad131d0423f5cad5"),
+        };
+        let json = r#"
+            {
+                "genesisBlock": "967da0e138b1014173844ee0e4d557ff8a2463b14fcaeab18f6a63aa7c7e1d05",
+                "confirmedBlockHeight": 30,
+                "startBlockHeight": 105,
+                "numTickets": 50,
+                "decayConst": 10000,
+                "feePercentage": 4,
+                "endBlockHeight": 120,
+                "startPrice": 0.01000000,
+                "auctionPrice": 0.00800000,
+                "txid": "aabbccddeeff06acec3378cac65698c8138f3531b274d34dad131d0423f5cad5"
+            }
+        "#;
+        assert_eq!(expected, serde_json::from_str(json).unwrap());
+    }
+
+    #[test]
+    fn test_GetRequestBidsResult() {
+        let expected = GetRequestBidsResult {
+            genesis_block: hash!(
+                "967da0e138b1014173844ee0e4d557ff8a2463b14fcaeab18f6a63aa7c7e1d05"
+            ),
+            start_block_height: 105,
+            end_block_height: 120,
+            confirmed_block_height: 30,
+            num_tickets: 50,
+            decay_const: 10000,
+            fee_percentage: 4,
+            start_price: Amount::from_btc(0.01),
+            auction_price: Amount::from_btc(0.008),
+            txid: hash!("aabbccddeeff06acec3378cac65698c8138f3531b274d34dad131d0423f5cad5"),
+            bids: vec![GetRequestBidsResultBid {
+                txid: hash!("11223554466f06acec3378cac65698c8138f3531b274d34dad131d0423f5cad5"),
+                fee_pub_key: PublicKey::from_str(
+                    "0268680737c76dabb801cb2204f57dbe4e4579e4f710cd67dc1b4227592c81e9b5",
+                )
+                .unwrap(),
+            }],
+        };
+        let json = r#"
+            {
+                "genesisBlock": "967da0e138b1014173844ee0e4d557ff8a2463b14fcaeab18f6a63aa7c7e1d05",
+                "confirmedBlockHeight": 30,
+                "startBlockHeight": 105,
+                "numTickets": 50,
+                "decayConst": 10000,
+                "feePercentage": 4,
+                "endBlockHeight": 120,
+                "startPrice": 0.01000000,
+                "auctionPrice": 0.00800000,
+                "txid": "aabbccddeeff06acec3378cac65698c8138f3531b274d34dad131d0423f5cad5",
+                "bids": [
+                    {
+                      "feePubKey": "0268680737c76dabb801cb2204f57dbe4e4579e4f710cd67dc1b4227592c81e9b5",
+                      "txid": "11223554466f06acec3378cac65698c8138f3531b274d34dad131d0423f5cad5"
+                    }
+                  ]
+            }
+        "#;
+        assert_eq!(expected, serde_json::from_str(json).unwrap());
+    }
+
+    #[test]
     fn test_ListUnspentResult() {
         let expected = ListUnspentResult {
             txid: hash!("5a6a5685c04974448c9c80fb170ae7ca20c02bddd97d306ac0314b3a12b85cba"),
@@ -1042,6 +1175,33 @@ mod tests {
     //TODO(stevenroose) test SignRawTransactionResult
 
     //TODO(stevenroose) test UTXO
+
+    #[test]
+    fn test_deserialize_pubkey() {
+        let vectors = vec![
+            (
+                r#""0268680737c76dabb801cb2204f57dbe4e4579e4f710cd67dc1b4227592c81e9b5""#,
+                PublicKey::from_str(
+                    "0268680737c76dabb801cb2204f57dbe4e4579e4f710cd67dc1b4227592c81e9b5",
+                )
+                .unwrap(),
+            ),
+            (
+                r#""0368680737c76dabb801cb2204f57e4e4579e4f710cd67dc1b4227592c81e9b5""#,
+                PublicKey::from_str(
+                    "0268680737c76dabb801cb2204f57dbe4e4579e4f710cd67dc1b4227592c81e9b5",
+                )
+                .unwrap(),
+            ),
+        ];
+        let mut v = vectors[0];
+        assert_eq!(deserialize_pubkey(deserializer!(v.0)).unwrap(), v.1);
+        v = vectors[1];
+        match deserialize_pubkey(deserializer!(v.0)) {
+            Ok(_) => assert!(false),
+            Err(err) => assert_eq!(err.to_string(), format!("error parsing pubkey: 0368680737c76dabb801cb2204f57e4e4579e4f710cd67dc1b4227592c81e9b5"))
+        }
+    }
 
     #[test]
     fn test_deserialize_amount() {

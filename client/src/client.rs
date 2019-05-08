@@ -414,7 +414,7 @@ pub trait RpcApi: Sized {
     }
 
     fn get_request_bids(&self, txid: &sha256d::Hash) -> Result<Option<json::GetRequestBidsResult>> {
-        self.call("getnewaddress", &[into_json(txid)?])
+        self.call("getrequestbids", &[into_json(txid)?])
     }
 
     /// Generate new address under own control

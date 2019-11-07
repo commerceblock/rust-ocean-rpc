@@ -466,6 +466,29 @@ pub trait RpcApi: Sized {
         ];
         self.call("sendtoaddress", handle_defaults(&mut args, &["".into(), "".into(), null()]))
     }
+
+    fn send_any_to_address(
+        &self,
+        addr: &str,
+        amount: f64,
+        comment: Option<&str>,
+        comment_to: Option<&str>,
+        ignoreblindfail: Option<bool>,
+        splitlargetxs: Option<bool>,
+        balance_sort_type: Option<u32>,
+    ) -> Result<sha256d::Hash> {
+        let mut args = [
+            into_json(addr)?,
+            into_json(amount)?,
+            opt_into_json(comment)?,
+            opt_into_json(comment_to)?,
+            opt_into_json(ignoreblindfail)?,
+            opt_into_json(splitlargetxs)?,
+            opt_into_json(balance_sort_type)?,
+        ];
+        self.call("sendanytoaddress", handle_defaults(&mut args, &["".into(), "".into(), true.into(), false.into(), 1.into()]))
+    }
+
     /// Returns data about each connected network node as an array of
     /// [`PeerInfo`][]
     ///

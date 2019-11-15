@@ -692,8 +692,8 @@ pub trait RpcApi: Sized {
 
     /// Mine up to block_num blocks immediately (before the RPC call returns)
     /// to an address in the wallet.
-    fn generate(&self, block_num: u64, maxtries: Option<u64>) -> Result<Vec<sha256d::Hash>> {
-        self.call("generate", &[block_num.into(), opt_into_json(maxtries)?])
+    fn generate(&self, block_num: u64) -> Result<Vec<sha256d::Hash>> {
+        self.call("generate", &[block_num.into()])
     }
 
     /// Mark a block as invalid by `block_hash`

@@ -598,7 +598,6 @@ pub trait RpcApi: Sized {
         self.call("fundrawtransaction", handle_defaults(&mut args, &defaults))
     }
 
-    #[deprecated]
     fn sign_raw_transaction<R: RawTx>(
         &self,
         tx: R,

@@ -19,19 +19,17 @@
 #[macro_use]
 extern crate log;
 extern crate bitcoin;
-extern crate bitcoin_amount;
-extern crate bitcoin_hashes;
 extern crate hex;
 extern crate jsonrpc;
 extern crate num_bigint;
 extern crate rust_ocean;
-extern crate secp256k1;
+#[allow(unused)]
+#[macro_use] // `macro_use` is needed for v1.24.0 compilation.
 extern crate serde;
 extern crate serde_json;
 
 pub extern crate ocean_rpc_json;
 pub use ocean_rpc_json as json;
-pub use ocean_rpc_json::getters::*;
 
 mod client;
 mod error;

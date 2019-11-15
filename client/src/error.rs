@@ -8,15 +8,13 @@
 // If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 //
 
-use std::error;
-use std::fmt;
+use std::{error, fmt, io};
 
 use bitcoin;
+use bitcoin::secp256k1;
 use hex;
 use jsonrpc;
 use serde_json;
-
-use json::GetterError;
 
 /// The error type for errors produced in this library.
 #[derive(Debug)]
@@ -25,6 +23,11 @@ pub enum Error {
     FromHex(hex::FromHexError),
     Json(serde_json::error::Error),
     BitcoinSerialization(bitcoin::consensus::encode::Error),
+    OceanSerialization(rust_ocean::encode::Error),
+    Secp256k1(secp256k1::Error),
+    Io(io::Error),
+    InvalidAmount(bitcoin::util::amount::ParseAmountError),
+    InvalidCookieFile,
 }
 
 impl From<jsonrpc::error::Error> for Error {
@@ -51,12 +54,27 @@ impl From<bitcoin::consensus::encode::Error> for Error {
     }
 }
 
-impl From<GetterError> for Error {
-    fn from(e: GetterError) -> Error {
-        match e {
-            GetterError::FromHex(e) => Error::FromHex(e),
-            GetterError::BitcoinSerialization(e) => Error::BitcoinSerialization(e),
-        }
+impl From<rust_ocean::encode::Error> for Error {
+    fn from(e: rust_ocean::encode::Error) -> Error {
+        Error::OceanSerialization(e)
+    }
+}
+
+impl From<secp256k1::Error> for Error {
+    fn from(e: secp256k1::Error) -> Error {
+        Error::Secp256k1(e)
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Error {
+        Error::Io(e)
+    }
+}
+
+impl From<bitcoin::util::amount::ParseAmountError> for Error {
+    fn from(e: bitcoin::util::amount::ParseAmountError) -> Error {
+        Error::InvalidAmount(e)
     }
 }
 
@@ -67,18 +85,18 @@ impl fmt::Display for Error {
             Error::FromHex(ref e) => write!(f, "hex decode error: {}", e),
             Error::Json(ref e) => write!(f, "JSON error: {}", e),
             Error::BitcoinSerialization(ref e) => write!(f, "Bitcoin serialization error: {}", e),
+            Error::OceanSerialization(ref e) => write!(f, "Ocean serialization error: {}", e),
+            Error::Secp256k1(ref e) => write!(f, "secp256k1 error: {}", e),
+            Error::Io(ref e) => write!(f, "I/O error: {}", e),
+            Error::InvalidAmount(ref e) => write!(f, "invalid amount: {}", e),
+            Error::InvalidCookieFile => write!(f, "invalid cookie file"),
         }
     }
 }
 
 impl error::Error for Error {
     fn description(&self) -> &str {
-        match *self {
-            Error::JsonRpc(_) => "JSON-RPC error",
-            Error::FromHex(_) => "hex decode error",
-            Error::Json(_) => "JSON error",
-            Error::BitcoinSerialization(_) => "Bitcoin serialization error",
-        }
+        "bitcoincore-rpc error"
     }
 
     fn cause(&self) -> Option<&dyn error::Error> {
@@ -87,6 +105,10 @@ impl error::Error for Error {
             Error::FromHex(ref e) => Some(e),
             Error::Json(ref e) => Some(e),
             Error::BitcoinSerialization(ref e) => Some(e),
+            Error::OceanSerialization(ref e) => Some(e),
+            Error::Secp256k1(ref e) => Some(e),
+            Error::Io(ref e) => Some(e),
+            _ => None,
         }
     }
 }

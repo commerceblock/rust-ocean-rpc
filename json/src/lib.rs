@@ -16,33 +16,63 @@
 #![crate_name = "ocean_rpc_json"]
 #![crate_type = "rlib"]
 
-#[macro_use]
-extern crate serde_derive;
 extern crate bitcoin;
-extern crate bitcoin_amount;
-extern crate bitcoin_hashes;
+extern crate rust_ocean;
 extern crate hex;
 extern crate num_bigint;
-extern crate secp256k1;
+#[allow(unused)]
+#[macro_use] // `macro_use` is needed for v1.24.0 compilation.
 extern crate serde;
 extern crate serde_json;
 
-pub mod getters;
-pub use getters::*;
-
 use std::str::FromStr;
 
-use bitcoin::blockdata::script::Script;
-use bitcoin::util::address::Address;
-use bitcoin_amount::Amount;
-use bitcoin_hashes::sha256d;
+use bitcoin::hashes::{sha256, sha256d};
+use bitcoin::util::bip158;
+use bitcoin::{Amount, PrivateKey, PublicKey, Script};
+use rust_ocean::{Address, Transaction, encode};
 use num_bigint::BigUint;
-use secp256k1::PublicKey;
 use serde::de::Error as SerdeError;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 //TODO(stevenroose) consider using a Time type
+
+/// A module used for serde serialization of bytes in hexadecimal format.
+///
+/// The module is compatible with the serde attribute.
+pub mod serde_hex {
+    use hex;
+    use serde::de::Error;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(b: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&hex::encode(&b))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let hex_str: String = ::serde::Deserialize::deserialize(d)?;
+        Ok(hex::decode(hex_str).map_err(D::Error::custom)?)
+    }
+
+    pub mod opt {
+        use hex;
+        use serde::de::Error;
+        use serde::{Deserializer, Serializer};
+
+        pub fn serialize<S: Serializer>(b: &Option<Vec<u8>>, s: S) -> Result<S::Ok, S::Error> {
+            match *b {
+                None => s.serialize_none(),
+                Some(ref b) => s.serialize_str(&hex::encode(&b)),
+            }
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<Vec<u8>>, D::Error> {
+            let hex_str: String = ::serde::Deserialize::deserialize(d)?;
+            Ok(Some(hex::decode(hex_str).map_err(D::Error::custom)?))
+        }
+    }
+}
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -52,16 +82,23 @@ pub struct AddMultiSigAddressResult {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub struct LoadWalletResult {
+    pub name: String,
+    pub warning: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetBlockResult {
     pub hash: sha256d::Hash,
-    pub confirmations: usize,
+    pub confirmations: u32,
     pub size: usize,
     pub strippedsize: Option<usize>,
     pub weight: usize,
     pub height: usize,
     pub version: u32,
-    pub version_hex: Option<String>,
+    #[serde(default, with = "::serde_hex::opt")]
+    pub version_hex: Option<Vec<u8>>,
     pub merkleroot: sha256d::Hash,
     pub tx: Vec<sha256d::Hash>,
     pub time: usize,
@@ -70,7 +107,8 @@ pub struct GetBlockResult {
     pub bits: String,
     #[serde(deserialize_with = "deserialize_difficulty")]
     pub difficulty: BigUint,
-    pub chainwork: String,
+    #[serde(with = "::serde_hex")]
+    pub chainwork: Vec<u8>,
     pub n_tx: usize,
     pub previousblockhash: Option<sha256d::Hash>,
     pub nextblockhash: Option<sha256d::Hash>,
@@ -80,10 +118,11 @@ pub struct GetBlockResult {
 #[serde(rename_all = "camelCase")]
 pub struct GetBlockHeaderResult {
     pub hash: sha256d::Hash,
-    pub confirmations: usize,
+    pub confirmations: u32,
     pub height: usize,
     pub version: u32,
-    pub version_hex: Option<String>,
+    #[serde(default, with = "::serde_hex::opt")]
+    pub version_hex: Option<Vec<u8>>,
     pub merkleroot: sha256d::Hash,
     pub time: usize,
     pub mediantime: Option<usize>,
@@ -91,7 +130,8 @@ pub struct GetBlockHeaderResult {
     pub bits: String,
     #[serde(deserialize_with = "deserialize_difficulty")]
     pub difficulty: BigUint,
-    pub chainwork: String,
+    #[serde(with = "::serde_hex")]
+    pub chainwork: Vec<u8>,
     pub n_tx: usize,
     pub previousblockhash: Option<sha256d::Hash>,
     pub nextblockhash: Option<sha256d::Hash>,
@@ -101,8 +141,8 @@ pub struct GetBlockHeaderResult {
 #[serde(rename_all = "camelCase")]
 pub struct GetMiningInfoResult {
     pub blocks: u32,
-    pub currentblockweight: u64,
-    pub currentblocktx: usize,
+    pub currentblockweight: Option<u64>,
+    pub currentblocktx: Option<usize>,
     #[serde(deserialize_with = "deserialize_difficulty")]
     pub difficulty: BigUint,
     pub networkhashps: f64,
@@ -115,34 +155,65 @@ pub struct GetMiningInfoResult {
 #[serde(rename_all = "camelCase")]
 pub struct GetRawTransactionResultVinScriptSig {
     pub asm: String,
-    pub hex: String,
+    #[serde(with = "::serde_hex")]
+    pub hex: Vec<u8>,
+}
+
+impl GetRawTransactionResultVinScriptSig {
+    pub fn script(&self) -> Result<Script, encode::Error> {
+        Ok(Script::from(self.hex.clone()))
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetRawTransactionResultVin {
-    pub txid: sha256d::Hash,
-    pub vout: u32,
-    pub script_sig: GetRawTransactionResultVinScriptSig,
     pub sequence: u32,
+    /// The raw scriptSig in case of a coinbase tx.
+    #[serde(default, with = "::serde_hex::opt")]
+    pub coinbase: Option<Vec<u8>>,
+    /// Not provided for coinbase txs.
+    pub txid: Option<sha256d::Hash>,
+    /// Not provided for coinbase txs.
+    pub vout: Option<u32>,
+    /// The scriptSig in case of a non-coinbase tx.
+    pub script_sig: Option<GetRawTransactionResultVinScriptSig>,
+    /// Not provided for coinbase txs.
     #[serde(default, deserialize_with = "deserialize_hex_array_opt")]
     pub txinwitness: Option<Vec<Vec<u8>>>,
+}
+
+impl GetRawTransactionResultVin {
+    /// Whether this input is from a coinbase tx.
+    /// The [txid], [vout] and [script_sig] fields are not provided
+    /// for coinbase transactions.
+    pub fn is_coinbase(&self) -> bool {
+        self.coinbase.is_some()
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetRawTransactionResultVoutScriptPubKey {
     pub asm: String,
-    pub hex: String,
+    #[serde(with = "::serde_hex")]
+    pub hex: Vec<u8>,
+    pub req_sigs: Option<usize>,
     #[serde(rename = "type")]
-    pub type_: String, //TODO(stevenroose) consider enum
-    pub addresses: Option<Vec<String>>, // TODO: Address for Ocean
+    pub type_: Option<String>, //TODO(stevenroose) consider enum
+    pub addresses: Option<Vec<Address>>,
+}
+
+impl GetRawTransactionResultVoutScriptPubKey {
+    pub fn script(&self) -> Result<Script, encode::Error> {
+        Ok(Script::from(self.hex.clone()))
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetRawTransactionResultVout {
-    #[serde(deserialize_with = "deserialize_amount")]
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
     pub value: Amount,
     pub n: u32,
     pub script_pub_key: GetRawTransactionResultVoutScriptPubKey,
@@ -153,7 +224,8 @@ pub struct GetRawTransactionResultVout {
 pub struct GetRawTransactionResult {
     #[serde(rename = "in_active_chain")]
     pub in_active_chain: Option<bool>,
-    pub hex: String,
+    #[serde(with = "::serde_hex")]
+    pub hex: Vec<u8>,
     pub txid: sha256d::Hash,
     pub hash: sha256d::Hash,
     pub size: usize,
@@ -163,12 +235,46 @@ pub struct GetRawTransactionResult {
     pub vin: Vec<GetRawTransactionResultVin>,
     pub vout: Vec<GetRawTransactionResultVout>,
     pub blockhash: Option<sha256d::Hash>,
-    pub confirmations: Option<usize>,
+    pub confirmations: Option<u32>,
     pub time: Option<usize>,
     pub blocktime: Option<usize>,
 }
 
-/// Enum to represent the BIP125 replacable status for a transaction.
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub struct GetBlockFilterResult {
+    pub header: sha256::Hash,
+    #[serde(with = "::serde_hex")]
+    pub filter: Vec<u8>,
+}
+
+impl GetBlockFilterResult {
+    /// Get the filter.
+    /// Note that this copies the underlying filter data. To prevent this,
+    /// use [into_filter] instead.
+    pub fn to_filter(&self) -> bip158::BlockFilter {
+        bip158::BlockFilter::new(&self.filter)
+    }
+
+    /// Convert the result in the filter type.
+    pub fn into_filter(self) -> bip158::BlockFilter {
+        bip158::BlockFilter {
+            content: self.filter,
+        }
+    }
+}
+
+impl GetRawTransactionResult {
+    /// Whether this tx is a coinbase tx.
+    pub fn is_coinbase(&self) -> bool {
+        self.vin.len() == 1 && self.vin[0].is_coinbase()
+    }
+
+    pub fn transaction(&self) -> Result<Transaction, encode::Error> {
+        Ok(encode::deserialize(&self.hex)?)
+    }
+}
+
+/// Enum to represent the BIP125 replaceable status for a transaction.
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Bip125Replaceable {
@@ -177,67 +283,77 @@ pub enum Bip125Replaceable {
     Unknown,
 }
 
-/// Enum to represent the BIP125 replacable status for a transaction.
-#[derive(Clone, PartialEq, Eq, Debug)]
+/// Enum to represent the BIP125 replaceable status for a transaction.
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum GetTransactionResultDetailCategory {
     Send,
     Receive,
-}
-
-impl<'de> ::serde::Deserialize<'de> for GetTransactionResultDetailCategory {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        match s.as_ref() {
-            "send" => Ok(GetTransactionResultDetailCategory::Send),
-            "receive" => Ok(GetTransactionResultDetailCategory::Receive),
-            v => Err(D::Error::custom(&format!("wrong value for 'detail' field: {}", v))),
-        }
-    }
+    Generate,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct GetTransactionResultDetail {
     pub address: Address,
     pub category: GetTransactionResultDetailCategory,
-    #[serde(deserialize_with = "deserialize_amount")]
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
     pub amount: Amount,
-    pub label: String,
+    pub label: Option<String>,
     pub vout: u32,
-    #[serde(default, deserialize_with = "deserialize_amount_opt")]
+    #[serde(default, with = "bitcoin::util::amount::serde::as_btc::opt")]
     pub fee: Option<Amount>,
     pub abandoned: Option<bool>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GetTransactionResult {
-    #[serde(deserialize_with = "deserialize_amount")]
-    pub amount: Amount,
-    #[serde(default, deserialize_with = "deserialize_amount_opt")]
-    pub fee: Option<Amount>,
-    pub confirmations: usize,
-    pub blockhash: sha256d::Hash,
-    pub blockindex: usize,
-    pub blocktime: u64,
+pub struct WalletTxInfo {
+    pub confirmations: i32,
+    pub blockhash: Option<sha256d::Hash>,
+    pub blockindex: Option<usize>,
+    pub blocktime: Option<u64>,
     pub txid: sha256d::Hash,
     pub time: u64,
     pub timereceived: u64,
     #[serde(rename = "bip125-replaceable")]
     pub bip125_replaceable: Bip125Replaceable,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
+pub struct GetTransactionResult {
+    #[serde(flatten)]
+    pub info: WalletTxInfo,
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
+    pub amount: Amount,
+    #[serde(default, with = "bitcoin::util::amount::serde::as_btc::opt")]
+    pub fee: Option<Amount>,
     pub details: Vec<GetTransactionResultDetail>,
-    pub hex: String,
+    #[serde(with = "::serde_hex")]
+    pub hex: Vec<u8>,
+}
+
+impl GetTransactionResult {
+    pub fn transaction(&self) -> Result<Transaction, encode::Error> {
+        Ok(encode::deserialize(&self.hex)?)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize)]
+pub struct ListTransactionResult {
+    #[serde(flatten)]
+    pub info: WalletTxInfo,
+    #[serde(flatten)]
+    pub detail: GetTransactionResultDetail,
+
+    pub trusted: Option<bool>,
+    pub comment: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetTxOutResult {
     pub bestblock: sha256d::Hash,
-    pub confirmations: usize,
-    #[serde(deserialize_with = "deserialize_amount")]
+    pub confirmations: u32,
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
     pub value: Amount,
     pub script_pub_key: GetRawTransactionResultVoutScriptPubKey,
     pub coinbase: bool,
@@ -245,13 +361,26 @@ pub struct GetTxOutResult {
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ListUnspentResult {
+pub struct ListUnspentQueryOptions {
+    #[serde(default, with = "bitcoin::util::amount::serde::as_btc::opt")]
+    pub minimum_amount: Option<Amount>,
+    #[serde(default, with = "bitcoin::util::amount::serde::as_btc::opt")]
+    pub maximum_amount: Option<Amount>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maximum_count: Option<usize>,
+    #[serde(default, with = "bitcoin::util::amount::serde::as_btc::opt")]
+    pub maximum_sum_amount: Option<Amount>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListUnspentResultEntry {
     pub txid: sha256d::Hash,
     pub vout: u32,
-    pub address: String, // TODO: Address for Ocean
+    pub address: Address, // TODO: Address for Ocean
     pub account: Option<String>,
     pub script_pub_key: Script,
-    #[serde(deserialize_with = "deserialize_amount")]
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
     pub amount: Amount,
     pub amountcommitment: Option<sha256d::Hash>,
     pub asset: sha256d::Hash,
@@ -267,6 +396,19 @@ pub struct ListUnspentResult {
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ListReceivedByAddressResult {
+    #[serde(rename = "involvesWatchonly")]
+    pub involved_watch_only: bool,
+    pub address: Address,
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
+    pub amount: Amount,
+    pub confirmations: u32,
+    pub label: String,
+    pub txids: Vec<sha256d::Hash>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SignRawTransactionResultError {
     pub txid: sha256d::Hash,
     pub vout: u32,
@@ -278,10 +420,16 @@ pub struct SignRawTransactionResultError {
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignRawTransactionResult {
-    pub hex: String,
+    #[serde(with = "::serde_hex")]
+    pub hex: Vec<u8>,
     pub complete: bool,
-    #[serde(default)]
-    pub errors: Vec<SignRawTransactionResultError>,
+    pub errors: Option<Vec<SignRawTransactionResultError>>,
+}
+
+impl SignRawTransactionResult {
+    pub fn transaction(&self) -> Result<Transaction, encode::Error> {
+        Ok(encode::deserialize(&self.hex)?)
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
@@ -289,7 +437,18 @@ pub struct TestMempoolAccept {
     pub txid: String,
     pub allowed: bool,
     #[serde(rename = "reject-reason")]
-    pub reject_reason: String,
+    pub reject_reason: Option<String>,
+}
+
+/// Status of a softfork
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub struct Softfork {
+    /// Name of softfork
+    pub id: String,
+    /// Block version
+    pub version: u64,
+    /// Progress toward rejecting pre-softfork blocks
+    pub reject: RejectStatus,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
@@ -302,9 +461,9 @@ pub struct GetRequestsResult {
     pub num_tickets: u32,
     pub decay_const: u32,
     pub fee_percentage: u32,
-    #[serde(deserialize_with = "deserialize_amount")]
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
     pub start_price: Amount,
-    #[serde(deserialize_with = "deserialize_amount")]
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
     pub auction_price: Amount,
     pub txid: sha256d::Hash,
 }
@@ -327,9 +486,9 @@ pub struct GetRequestBidsResult {
     pub num_tickets: u32,
     pub decay_const: u32,
     pub fee_percentage: u32,
-    #[serde(deserialize_with = "deserialize_amount")]
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
     pub start_price: Amount,
-    #[serde(deserialize_with = "deserialize_amount")]
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
     pub auction_price: Amount,
     pub txid: sha256d::Hash,
     pub bids: Vec<GetRequestBidsResultBid>,
@@ -354,7 +513,8 @@ pub struct GetBlockchainInfoResult {
     /// Estimate of verification progress [0..1]
     pub verificationprogress: f64,
     /// Total amount of work in active chain, in hexadecimal
-    pub chainwork: String,
+    #[serde(with = "::serde_hex")]
+    pub chainwork: Vec<u8>,
     /// If the blocks are subject to pruning
     pub pruned: bool,
     /// Lowest-height complete block stored (only present if pruning is enabled)
@@ -368,15 +528,84 @@ pub struct GetBlockchainInfoResult {
     pub bip9_softforks: Value,
 }
 
-/// Status of a softfork
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum ImportMultiRequestScriptPubkey<'a> {
+    Address(&'a Address),
+    Script(&'a Script),
+}
+
+impl<'a> serde::Serialize for ImportMultiRequestScriptPubkey<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match *self {
+            ImportMultiRequestScriptPubkey::Address(ref addr) => {
+                #[derive(Serialize)]
+                struct Tmp<'a> {
+                    pub address: &'a Address,
+                };
+                serde::Serialize::serialize(
+                    &Tmp {
+                        address: addr,
+                    },
+                    serializer,
+                )
+            }
+            ImportMultiRequestScriptPubkey::Script(script) => {
+                serializer.serialize_str(&hex::encode(script.as_bytes()))
+            }
+        }
+    }
+}
+
+/// A import request for importmulti.
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize)]
+pub struct ImportMultiRequest<'a> {
+    pub timestamp: u64,
+    /// If using descriptor, do not also provide address/scriptPubKey, scripts, or pubkeys.
+    #[serde(rename = "desc", skip_serializing_if = "Option::is_none")]
+    pub descriptor: Option<&'a str>,
+    #[serde(rename = "scriptPubKey", skip_serializing_if = "Option::is_none")]
+    pub script_pubkey: Option<ImportMultiRequestScriptPubkey<'a>>,
+    #[serde(rename = "redeemscript", skip_serializing_if = "Option::is_none")]
+    pub redeem_script: Option<&'a Script>,
+    #[serde(rename = "witnessscript", skip_serializing_if = "Option::is_none")]
+    pub witness_script: Option<&'a Script>,
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    pub pubkeys: &'a [PublicKey],
+    #[serde(skip_serializing_if = "<[_]>::is_empty")]
+    pub keys: &'a [PrivateKey],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<(usize, usize)>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub internal: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub watchonly: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keypool: Option<bool>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Default, Deserialize, Serialize)]
+pub struct ImportMultiOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rescan: Option<bool>,
+}
+
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
-pub struct Softfork {
-    /// Name of softfork
-    pub id: String,
-    /// Block version
-    pub version: u64,
-    /// Progress toward rejecting pre-softfork blocks
-    pub reject: RejectStatus,
+pub struct ImportMultiResultError {
+    pub code: i64,
+    pub message: String,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub struct ImportMultiResult {
+    pub success: bool,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+    pub error: Option<ImportMultiResultError>,
 }
 
 /// Progress toward rejecting pre-softfork blocks
@@ -472,58 +701,12 @@ pub struct BlockRef {
 
 // Custom types for input arguments.
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[serde(rename_all = "UPPERCASE")]
 pub enum EstimateMode {
     Unset,
     Economical,
     Conservative,
-}
-
-impl FromStr for EstimateMode {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "UNSET" => Ok(EstimateMode::Unset),
-            "ECONOMICAL" => Ok(EstimateMode::Economical),
-            "CONSERVATIVE" => Ok(EstimateMode::Conservative),
-            _ => Err(()),
-        }
-    }
-}
-
-impl ::serde::Serialize for EstimateMode {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: ::serde::Serializer,
-    {
-        let s = match *self {
-            EstimateMode::Unset => "UNSET",
-            EstimateMode::Economical => "ECONOMICAL",
-            EstimateMode::Conservative => "CONSERVATIVE",
-        };
-
-        serializer.serialize_str(s)
-    }
-}
-
-/// A wrapper around &[u8] that will be serialized as hexadecimal.
-/// If you have an `&[u8]`, you can `.into()` it into `HexBytes`.
-pub struct HexBytes<'a>(&'a [u8]);
-
-impl<'a> From<&'a [u8]> for HexBytes<'a> {
-    fn from(b: &'a [u8]) -> HexBytes<'a> {
-        HexBytes(b)
-    }
-}
-
-impl<'a> serde::Serialize for HexBytes<'a> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&hex::encode(self.0))
-    }
 }
 
 /// A wrapper around bitcoin::SigHashType that will be serialized
@@ -562,6 +745,48 @@ pub struct CreateRawTransactionInput {
     pub sequence: Option<u32>,
 }
 
+#[derive(Serialize, Clone, PartialEq, Eq, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FundRawTransactionOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub change_address: Option<Address>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub change_position: Option<u32>,
+    #[serde(rename = "change_type", skip_serializing_if = "Option::is_none")]
+    pub change_type: Option<AddressType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_watching: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lock_unspents: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fee_rate: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtract_fee_from_outputs: Option<Vec<u32>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaceable: Option<bool>,
+    #[serde(rename = "conf_target", skip_serializing_if = "Option::is_none")]
+    pub conf_target: Option<u32>,
+    #[serde(rename = "estimate_mode", skip_serializing_if = "Option::is_none")]
+    pub estimate_mode: Option<EstimateMode>,
+}
+
+#[derive(Deserialize, Clone, PartialEq, Eq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct FundRawTransactionResult {
+    #[serde(with = "::serde_hex")]
+    pub hex: Vec<u8>,
+    #[serde(with = "bitcoin::util::amount::serde::as_btc")]
+    pub fee: Amount,
+    #[serde(rename = "changepos")]
+    pub change_position: i32,
+}
+
+impl FundRawTransactionResult {
+    pub fn transaction(&self) -> Result<Transaction, encode::Error> {
+        encode::deserialize(&self.hex)
+    }
+}
+
 // Used for signrawtransaction argument.
 #[derive(Serialize, Clone, PartialEq, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -571,27 +796,21 @@ pub struct SignRawTransactionInput {
     pub script_pub_key: Script,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redeem_script: Option<Script>,
-    pub amount: f64,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "bitcoin::util::amount::serde::as_btc::opt"
+    )]
+    pub amount: Option<Amount>,
 }
 
 /// Used to represent an address type.
+#[derive(Serialize, Clone, PartialEq, Eq, Debug)]
+#[serde(rename_all = "kebab-case")]
 pub enum AddressType {
     Legacy,
     P2shSegwit,
     Bech32,
-}
-
-impl serde::Serialize for AddressType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(match *self {
-            AddressType::Legacy => "legacy",
-            AddressType::P2shSegwit => "p2sh-segwit",
-            AddressType::Bech32 => "bech32",
-        })
-    }
 }
 
 /// Used to represent arguments that can either be an address or a public key.
@@ -632,7 +851,7 @@ fn deserialize_amount<'de, D>(deserializer: D) -> Result<Amount, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    Ok(Amount::from_btc(f64::deserialize(deserializer)?))
+    Ok(Amount::from_btc(f64::deserialize(deserializer)?).unwrap())
 }
 
 /// deserialize_amount_opt deserializes a BTC-denominated floating point Bitcoin amount into an
@@ -641,7 +860,7 @@ fn deserialize_amount_opt<'de, D>(deserializer: D) -> Result<Option<Amount>, D::
 where
     D: serde::Deserializer<'de>,
 {
-    Ok(Some(Amount::from_btc(f64::deserialize(deserializer)?)))
+    Ok(Some(Amount::from_btc(f64::deserialize(deserializer)?).unwrap()))
 }
 
 fn deserialize_difficulty<'de, D>(deserializer: D) -> Result<BigUint, D::Error>
@@ -656,13 +875,6 @@ where
     BigUint::from_str(real)
         .map_err(|_| D::Error::custom(&format!("error parsing difficulty: {}", s)))
 }
-
-///// deserialize_hex deserializes a hex-encoded byte array.
-//fn deserialize_hex<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-//		where D: serde::Deserializer<'de> {
-//	let h = String::deserialize(deserializer)?;
-//	hex::decode(&h).map_err(|_| D::Error::custom(&format!("error parsing hex: {}", h)))
-//}
 
 /// deserialize_hex_array_opt deserializes a vector of hex-encoded byte arrays.
 fn deserialize_hex_array_opt<'de, D>(deserializer: D) -> Result<Option<Vec<Vec<u8>>>, D::Error>
@@ -684,8 +896,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bitcoin_hashes::hex::FromHex;
+    use bitcoin::hashes::hex::FromHex;
     use serde_json;
+
+    macro_rules! hex {
+        ($h:expr) => {
+            hex::decode(&$h).unwrap()
+        };
+    }
 
     macro_rules! deserializer {
         ($j:expr) => {
@@ -714,15 +932,15 @@ mod tests {
     #[test]
     fn test_AddMultiSigAddressResult() {
         let expected = AddMultiSigAddressResult {
-			address: addr!("2N3Cvw3s23W43MXnW28DKpuDGeXV147KTzc"),
-			redeem_script: script!("51210330aa51b444e2bac981235a0056112385057492c6cd06936af410c5af27c1f9462103dae74774a6cd35d948ee60bc7a1b35fdaed7b54698762e963e3677f795c7ad2a52ae"),
-		};
+            address: addr!("2dxmEBXc2qMYcLSKiDBxdEePY3Ytixmnh4E"),
+            redeem_script: script!("51210330aa51b444e2bac981235a0056112385057492c6cd06936af410c5af27c1f9462103dae74774a6cd35d948ee60bc7a1b35fdaed7b54698762e963e3677f795c7ad2a52ae"),
+        };
         let json = r#"
-			{
-			  "address": "2N3Cvw3s23W43MXnW28DKpuDGeXV147KTzc",
-			  "redeemScript": "51210330aa51b444e2bac981235a0056112385057492c6cd06936af410c5af27c1f9462103dae74774a6cd35d948ee60bc7a1b35fdaed7b54698762e963e3677f795c7ad2a52ae"
-			}
-		"#;
+            {
+              "address": "2dxmEBXc2qMYcLSKiDBxdEePY3Ytixmnh4E",
+              "redeemScript": "51210330aa51b444e2bac981235a0056112385057492c6cd06936af410c5af27c1f9462103dae74774a6cd35d948ee60bc7a1b35fdaed7b54698762e963e3677f795c7ad2a52ae"
+            }
+        "#;
         assert_eq!(expected, serde_json::from_str(json).unwrap());
     }
 
@@ -736,7 +954,7 @@ mod tests {
             weight: 760,
             height: 2,
             version: 1,
-            version_hex: Some("00000001".into()),
+            version_hex: Some(hex!("00000001")),
             merkleroot: hash!("20222eb90f5895556926c112bb5aa0df4ab5abc3107e21a6950aec3b2e3541e2"),
             tx: vec![hash!("20222eb90f5895556926c112bb5aa0df4ab5abc3107e21a6950aec3b2e3541e2")],
             time: 1296688946,
@@ -744,7 +962,7 @@ mod tests {
             nonce: 875942400,
             bits: "1d00ffff".into(),
             difficulty: 1u64.into(),
-            chainwork: "0000000000000000000000000000000000000000000000000000000300030003".into(),
+            chainwork: hex!("0000000000000000000000000000000000000000000000000000000300030003"),
             n_tx: 1,
             previousblockhash: Some(hash!(
                 "00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206"
@@ -754,30 +972,30 @@ mod tests {
             )),
         };
         let json = r#"
-			{
-			  "hash": "000000006c02c8ea6e4ff69651f7fcde348fb9d557a06e6957b65552002a7820",
-			  "confirmations": 1414401,
-			  "strippedsize": 190,
-			  "size": 190,
-			  "weight": 760,
-			  "height": 2,
-			  "version": 1,
-			  "versionHex": "00000001",
-			  "merkleroot": "20222eb90f5895556926c112bb5aa0df4ab5abc3107e21a6950aec3b2e3541e2",
-			  "tx": [
-				"20222eb90f5895556926c112bb5aa0df4ab5abc3107e21a6950aec3b2e3541e2"
-			  ],
-			  "time": 1296688946,
-			  "mediantime": 1296688928,
-			  "nonce": 875942400,
-			  "bits": "1d00ffff",
-			  "difficulty": 1,
-			  "chainwork": "0000000000000000000000000000000000000000000000000000000300030003",
-			  "nTx": 1,
-			  "previousblockhash": "00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206",
-			  "nextblockhash": "000000008b896e272758da5297bcd98fdc6d97c9b765ecec401e286dc1fdbe10"
-			}
-		"#;
+            {
+              "hash": "000000006c02c8ea6e4ff69651f7fcde348fb9d557a06e6957b65552002a7820",
+              "confirmations": 1414401,
+              "strippedsize": 190,
+              "size": 190,
+              "weight": 760,
+              "height": 2,
+              "version": 1,
+              "versionHex": "00000001",
+              "merkleroot": "20222eb90f5895556926c112bb5aa0df4ab5abc3107e21a6950aec3b2e3541e2",
+              "tx": [
+                "20222eb90f5895556926c112bb5aa0df4ab5abc3107e21a6950aec3b2e3541e2"
+              ],
+              "time": 1296688946,
+              "mediantime": 1296688928,
+              "nonce": 875942400,
+              "bits": "1d00ffff",
+              "difficulty": 1,
+              "chainwork": "0000000000000000000000000000000000000000000000000000000300030003",
+              "nTx": 1,
+              "previousblockhash": "00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206",
+              "nextblockhash": "000000008b896e272758da5297bcd98fdc6d97c9b765ecec401e286dc1fdbe10"
+            }
+        "#;
         assert_eq!(expected, serde_json::from_str(json).unwrap());
     }
 
@@ -788,14 +1006,14 @@ mod tests {
             confirmations: 29341,
             height: 1384958,
             version: 536870912,
-            version_hex: Some("20000000".into()),
+            version_hex: Some(hex!("20000000")),
             merkleroot: hash!("33d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
             time: 1534935138,
             mediantime: Some(1534932055),
             nonce: 871182973,
             bits: "1959273b".into(),
             difficulty: 48174374u64.into(),
-            chainwork: "0000000000000000000000000000000000000000000000a3c78921878ecbafd4".into(),
+            chainwork: hex!("0000000000000000000000000000000000000000000000a3c78921878ecbafd4"),
             n_tx: 2647,
             previousblockhash: Some(hash!(
                 "000000000000002937dcaffd8367cfb05cd9ef2e3bd7a081de82696f70e719d9"
@@ -805,24 +1023,24 @@ mod tests {
             )),
         };
         let json = r#"
-			{
-			  "hash": "00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765",
-			  "confirmations": 29341,
-			  "height": 1384958,
-			  "version": 536870912,
-			  "versionHex": "20000000",
-			  "merkleroot": "33d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7",
-			  "time": 1534935138,
-			  "mediantime": 1534932055,
-			  "nonce": 871182973,
-			  "bits": "1959273b",
-			  "difficulty": 48174374.44122773,
-			  "chainwork": "0000000000000000000000000000000000000000000000a3c78921878ecbafd4",
-			  "nTx": 2647,
-			  "previousblockhash": "000000000000002937dcaffd8367cfb05cd9ef2e3bd7a081de82696f70e719d9",
-			  "nextblockhash": "00000000000000331dddb553312687a4be62635ad950cde36ebc977c702d2791"
-			}
-		"#;
+            {
+              "hash": "00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765",
+              "confirmations": 29341,
+              "height": 1384958,
+              "version": 536870912,
+              "versionHex": "20000000",
+              "merkleroot": "33d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7",
+              "time": 1534935138,
+              "mediantime": 1534932055,
+              "nonce": 871182973,
+              "bits": "1959273b",
+              "difficulty": 48174374.44122773,
+              "chainwork": "0000000000000000000000000000000000000000000000a3c78921878ecbafd4",
+              "nTx": 2647,
+              "previousblockhash": "000000000000002937dcaffd8367cfb05cd9ef2e3bd7a081de82696f70e719d9",
+              "nextblockhash": "00000000000000331dddb553312687a4be62635ad950cde36ebc977c702d2791"
+            }
+        "#;
         assert_eq!(expected, serde_json::from_str(json).unwrap());
     }
 
@@ -830,8 +1048,8 @@ mod tests {
     fn test_GetMiningInfoResult() {
         let expected = GetMiningInfoResult {
             blocks: 1415011,
-            currentblockweight: 0,
-            currentblocktx: 0,
+            currentblockweight: Some(0),
+            currentblocktx: Some(0),
             difficulty: 1u32.into(),
             networkhashps: 11970022568515.56,
             pooledtx: 110,
@@ -839,25 +1057,48 @@ mod tests {
             warnings: "Warning: unknown new rules activated (versionbit 28)".into(),
         };
         let json = r#"
-			{
-			  "blocks": 1415011,
-			  "currentblockweight": 0,
-			  "currentblocktx": 0,
-			  "difficulty": 1,
-			  "networkhashps": 11970022568515.56,
-			  "pooledtx": 110,
-			  "chain": "test",
-			  "warnings": "Warning: unknown new rules activated (versionbit 28)"
-			}
-		"#;
+            {
+              "blocks": 1415011,
+              "currentblockweight": 0,
+              "currentblocktx": 0,
+              "difficulty": 1,
+              "networkhashps": 11970022568515.56,
+              "pooledtx": 110,
+              "chain": "test",
+              "warnings": "Warning: unknown new rules activated (versionbit 28)"
+            }
+        "#;
+        assert_eq!(expected, serde_json::from_str(json).unwrap());
+
+        let expected = GetMiningInfoResult {
+            blocks: 585966,
+            currentblockweight: None,
+            currentblocktx: None,
+            difficulty: "9064159826491".parse().unwrap(),
+            networkhashps: 5.276674407862246e+19,
+            pooledtx: 48870,
+            chain: "main".into(),
+            warnings: "".into(),
+        };
+        let json = r#"
+            {
+              "blocks": 585966,
+              "difficulty": 9064159826491.41,
+              "networkhashps": 5.276674407862246e+19,
+              "pooledtx": 48870,
+              "chain": "main",
+              "warnings": ""
+            }
+        "#;
         assert_eq!(expected, serde_json::from_str(json).unwrap());
     }
 
+    //TODO(stevenroose) coinbase variant
     #[test]
     fn test_GetRawTransactionResult() {
         let expected = GetRawTransactionResult {
 			in_active_chain: None,
-			hex: "0200000001586bd02815cf5faabfec986a4e50d25dbee089bd2758621e61c5fab06c334af0000000006b483045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c012103dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2dfeffffff021dc4260c010000001976a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac00e1f505000000001976a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88acfd211500".into(),
+			hex: hex!("020000000001f6d59ba2e098a2a2eaecf06b02aa0773773449caf62bd4e9f17cdb9b0d679954000000006b483045022100c74ee0dd8f3f6c909635f7a2bb8dd2052e3547f94a520cdba2aa12668059dae302204306e11033f18f65560a52a860b098e7df0fa7d35350d16f1c5a86e2da2ae37e012102b672f428ad984563c0dec80b3912fcad871338545df1538fe26c390826fbb4b2000000000101f80bb0038f482243202f0b2dcf88d9b4e7f930a48a3fcdc003af76b1f9d60e63010000000005f5c92c00a06a2006226e46111a0b59caaf126043eb5bbf28c34f3a5e332a1fc7b2b73cf188910f1976a914bedb324be05d1a1254afeb3e7ef40fea0368bc1e88ac2102e25e582ac1adc69f168aa7dbf0a97341421e10b22c659927de24fdac6e9f1fae4101a48fe52775701556a4a2dbf3d95c0c13845bbf87271e745b1c454f8ebcb5cd4792a4139f419f192ca6e389531d46fa5857f2c109dfe4003ad8b2ce504b488bed00000000"),
 			txid: hash!("4a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91"),
 			hash: hash!("4a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91"),
 			size: 226,
@@ -865,33 +1106,36 @@ mod tests {
 			version: 2,
 			locktime: 1384957,
 			vin: vec![GetRawTransactionResultVin{
-				txid: hash!("f04a336cb0fac5611e625827bd89e0be5dd2504e6a98ecbfaa5fcf1528d06b58"),
-				vout: 0,
-				script_sig: GetRawTransactionResultVinScriptSig{
-					asm: "3045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c[ALL] 03dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2d".into(),
-					hex: "483045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c012103dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2d".into(),
-				},
+				txid: Some(hash!("f04a336cb0fac5611e625827bd89e0be5dd2504e6a98ecbfaa5fcf1528d06b58")),
+				vout: Some(0),
+				script_sig: serde::export::Some(GetRawTransactionResultVinScriptSig{asm:
+                                        "3045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c[ALL] 03dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2d".into(),
+                                    hex:
+                                        hex!("483045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c012103dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2d"),}),
 				sequence: 4294967294,
 				txinwitness: None,
+                coinbase: None
 
 			}],
 			vout: vec![GetRawTransactionResultVout{
-				value: Amount::from_btc(44.98834461),
+				value: Amount::from_btc(44.98834461).unwrap(),
 				n: 0,
 				script_pub_key: GetRawTransactionResultVoutScriptPubKey{
 					asm: "OP_DUP OP_HASH160 f602e88b2b5901d8aab15ebe4a97cf92ec6e03b3 OP_EQUALVERIFY OP_CHECKSIG".into(),
-					hex: "76a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac".into(),
-					type_: "pubkeyhash".into(),
-					addresses: Some(vec!["n3wk1KcFnVibGdqQa6jbwoR8gbVtRbYM4M".into()]),
+					hex: hex!("76a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac"),
+					type_: Some("pubkeyhash".into()),
+					addresses: Some(vec![addr!("1HXfr2qBwT4qGZYn8FczNy68rw5dwG8trc")]),
+                    req_sigs: Some(1),
 				},
 			}, GetRawTransactionResultVout{
-				value: Amount::from_btc(1.0),
+				value: Amount::from_btc(1.0).unwrap(),
 				n: 1,
 				script_pub_key: GetRawTransactionResultVoutScriptPubKey{
 					asm: "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG".into(),
-					hex: "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac".into(),
-					type_: "pubkeyhash".into(),
-					addresses: Some(vec!["mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA".into()]),
+					hex: hex!("76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac"),
+                    type_: Some("pubkeyhash".into()),
+					addresses: Some(vec![addr!("1HXfr2qBwT4qGZYn8FczNy68rw5dwG8trc")]),
+                    req_sigs: None,
 				},
 			}],
 			blockhash: Some(hash!("00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765")),
@@ -929,7 +1173,7 @@ mod tests {
 					"reqSigs": 1,
 					"type": "pubkeyhash",
 					"addresses": [
-					  "n3wk1KcFnVibGdqQa6jbwoR8gbVtRbYM4M"
+					  "1HXfr2qBwT4qGZYn8FczNy68rw5dwG8trc"
 					]
 				  }
 				},
@@ -941,12 +1185,12 @@ mod tests {
 					"hex": "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac",
 					"type": "pubkeyhash",
 					"addresses": [
-					  "mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA"
+					  "1HXfr2qBwT4qGZYn8FczNy68rw5dwG8trc"
 					]
 				  }
 				}
 			  ],
-			  "hex": "0200000001586bd02815cf5faabfec986a4e50d25dbee089bd2758621e61c5fab06c334af0000000006b483045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c012103dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2dfeffffff021dc4260c010000001976a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac00e1f505000000001976a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88acfd211500",
+			  "hex": "020000000001f6d59ba2e098a2a2eaecf06b02aa0773773449caf62bd4e9f17cdb9b0d679954000000006b483045022100c74ee0dd8f3f6c909635f7a2bb8dd2052e3547f94a520cdba2aa12668059dae302204306e11033f18f65560a52a860b098e7df0fa7d35350d16f1c5a86e2da2ae37e012102b672f428ad984563c0dec80b3912fcad871338545df1538fe26c390826fbb4b2000000000101f80bb0038f482243202f0b2dcf88d9b4e7f930a48a3fcdc003af76b1f9d60e63010000000005f5c92c00a06a2006226e46111a0b59caaf126043eb5bbf28c34f3a5e332a1fc7b2b73cf188910f1976a914bedb324be05d1a1254afeb3e7ef40fea0368bc1e88ac2102e25e582ac1adc69f168aa7dbf0a97341421e10b22c659927de24fdac6e9f1fae4101a48fe52775701556a4a2dbf3d95c0c13845bbf87271e745b1c454f8ebcb5cd4792a4139f419f192ca6e389531d46fa5857f2c109dfe4003ad8b2ce504b488bed00000000",
 			  "blockhash": "00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765",
 			  "confirmations": 29446,
 			  "time": 1534935138,
@@ -957,63 +1201,65 @@ mod tests {
         assert!(expected.transaction().is_ok());
         assert_eq!(
             expected.transaction().unwrap().input[0].previous_output.txid,
-            hash!("f04a336cb0fac5611e625827bd89e0be5dd2504e6a98ecbfaa5fcf1528d06b58")
+            hash!("5499670d9bdb7cf1e9d42bf6ca4934777307aa026bf0eceaa2a298e0a29bd5f6")
         );
-        assert!(expected.vin[0].script_sig.script().is_ok());
+        assert!(expected.vin[0].script_sig.as_ref().unwrap().script().is_ok());
         assert!(expected.vout[0].script_pub_key.script().is_ok());
     }
 
     #[test]
     fn test_GetTransactionResult() {
         let expected = GetTransactionResult {
-			amount: Amount::from_btc(1.0),
-			fee: None,
-			confirmations: 30104,
-			blockhash: hash!("00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765"),
-			blockindex: 2028,
-			blocktime: 1534935138,
-			txid: hash!("4a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91"),
-			time: 1534934745,
-			timereceived: 1534934745,
-			bip125_replaceable: Bip125Replaceable::No,
-			details: vec![
-				GetTransactionResultDetail {
-					address: addr!("mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA"),
-					category: GetTransactionResultDetailCategory::Receive,
-					amount: Amount::from_btc(1.0),
-					label: "".into(),
-					vout: 1,
-					fee: None,
-					abandoned: None,
-				},
-			],
-			hex: "0200000001586bd02815cf5faabfec986a4e50d25dbee089bd2758621e61c5fab06c334af0000000006b483045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c012103dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2dfeffffff021dc4260c010000001976a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac00e1f505000000001976a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88acfd211500".into(),
-		};
+            amount: Amount::from_btc(1.0).unwrap(),
+            fee: None,
+            info: WalletTxInfo {
+                confirmations: 30104,
+                blockhash: Some(hash!("00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765")),
+                blockindex: Some(2028),
+                blocktime: Some(1534935138),
+                txid: hash!("4a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91"),
+                time: 1534934745,
+                timereceived: 1534934745,
+                bip125_replaceable: Bip125Replaceable::No,
+            },
+            details: vec![
+                GetTransactionResultDetail {
+                    address: addr!("2dxmEBXc2qMYcLSKiDBxdEePY3Ytixmnh4E"),
+                    category: GetTransactionResultDetailCategory::Receive,
+                    amount: Amount::from_btc(1.0).unwrap(),
+                    label: Some("".into()),
+                    vout: 1,
+                    fee: None,
+                    abandoned: None,
+                },
+            ],
+            hex: hex!("020000000001f6d59ba2e098a2a2eaecf06b02aa0773773449caf62bd4e9f17cdb9b0d679954000000006b483045022100c74ee0dd8f3f6c909635f7a2bb8dd2052e3547f94a520cdba2aa12668059dae302204306e11033f18f65560a52a860b098e7df0fa7d35350d16f1c5a86e2da2ae37e012102b672f428ad984563c0dec80b3912fcad871338545df1538fe26c390826fbb4b2000000000101f80bb0038f482243202f0b2dcf88d9b4e7f930a48a3fcdc003af76b1f9d60e63010000000005f5c92c00a06a2006226e46111a0b59caaf126043eb5bbf28c34f3a5e332a1fc7b2b73cf188910f1976a914bedb324be05d1a1254afeb3e7ef40fea0368bc1e88ac2102e25e582ac1adc69f168aa7dbf0a97341421e10b22c659927de24fdac6e9f1fae4101a48fe52775701556a4a2dbf3d95c0c13845bbf87271e745b1c454f8ebcb5cd4792a4139f419f192ca6e389531d46fa5857f2c109dfe4003ad8b2ce504b488bed00000000"),
+        };
         let json = r#"
-			{
-			  "amount": 1.00000000,
-			  "confirmations": 30104,
-			  "blockhash": "00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765",
-			  "blockindex": 2028,
-			  "blocktime": 1534935138,
-			  "txid": "4a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91",
-			  "walletconflicts": [
-			  ],
-			  "time": 1534934745,
-			  "timereceived": 1534934745,
-			  "bip125-replaceable": "no",
-			  "details": [
-				{
-				  "address": "mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA",
-				  "category": "receive",
-				  "amount": 1.00000000,
-				  "label": "",
-				  "vout": 1
-				}
-			  ],
-			  "hex": "0200000001586bd02815cf5faabfec986a4e50d25dbee089bd2758621e61c5fab06c334af0000000006b483045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c012103dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2dfeffffff021dc4260c010000001976a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac00e1f505000000001976a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88acfd211500"
-			}
-		"#;
+            {
+              "amount": 1.00000000,
+              "confirmations": 30104,
+              "blockhash": "00000000000000039dc06adbd7666a8d1df9acf9d0329d73651b764167d63765",
+              "blockindex": 2028,
+              "blocktime": 1534935138,
+              "txid": "4a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91",
+              "walletconflicts": [
+              ],
+              "time": 1534934745,
+              "timereceived": 1534934745,
+              "bip125-replaceable": "no",
+              "details": [
+                {
+                  "address": "2dxmEBXc2qMYcLSKiDBxdEePY3Ytixmnh4E",
+                  "category": "receive",
+                  "amount": 1.00000000,
+                  "label": "",
+                  "vout": 1
+                }
+              ],
+              "hex": "020000000001f6d59ba2e098a2a2eaecf06b02aa0773773449caf62bd4e9f17cdb9b0d679954000000006b483045022100c74ee0dd8f3f6c909635f7a2bb8dd2052e3547f94a520cdba2aa12668059dae302204306e11033f18f65560a52a860b098e7df0fa7d35350d16f1c5a86e2da2ae37e012102b672f428ad984563c0dec80b3912fcad871338545df1538fe26c390826fbb4b2000000000101f80bb0038f482243202f0b2dcf88d9b4e7f930a48a3fcdc003af76b1f9d60e63010000000005f5c92c00a06a2006226e46111a0b59caaf126043eb5bbf28c34f3a5e332a1fc7b2b73cf188910f1976a914bedb324be05d1a1254afeb3e7ef40fea0368bc1e88ac2102e25e582ac1adc69f168aa7dbf0a97341421e10b22c659927de24fdac6e9f1fae4101a48fe52775701556a4a2dbf3d95c0c13845bbf87271e745b1c454f8ebcb5cd4792a4139f419f192ca6e389531d46fa5857f2c109dfe4003ad8b2ce504b488bed00000000"
+            }
+        "#;
         assert_eq!(expected, serde_json::from_str(json).unwrap());
         assert!(expected.transaction().is_ok());
     }
@@ -1023,12 +1269,13 @@ mod tests {
         let expected = GetTxOutResult {
 			bestblock: hash!("000000000000002a1fde7234dc2bc016863f3d672af749497eb5c227421e44d5"),
 			confirmations: 29505,
-			value: Amount::from_btc(1.0),
+			value: Amount::from_btc(1.0).unwrap(),
 			script_pub_key: GetRawTransactionResultVoutScriptPubKey{
 				asm: "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG".into(),
-				hex: "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac".into(),
-				type_: "pubkeyhash".into(),
-				addresses: Some(vec!["mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA".into()]),
+				hex: hex!("76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac"),
+				type_: Some("pubkeyhash".into()),
+				addresses: Some(vec![addr!("2dxmEBXc2qMYcLSKiDBxdEePY3Ytixmnh4E")]),
+                req_sigs: Some(1)
 			},
 			coinbase: false,
 		};
@@ -1042,8 +1289,9 @@ mod tests {
 				"hex": "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac",
 				"type": "pubkeyhash",
 				"addresses": [
-				  "mq3VuL2K63VKWkp8vvqRiJPre4h9awrHfA"
-				]
+				  "2dxmEBXc2qMYcLSKiDBxdEePY3Ytixmnh4E"
+				],
+                "reqSigs": 1
 			  },
 			  "coinbase": false
 			}
@@ -1065,8 +1313,8 @@ mod tests {
             num_tickets: 50,
             decay_const: 10000,
             fee_percentage: 4,
-            start_price: Amount::from_btc(0.01),
-            auction_price: Amount::from_btc(0.008),
+            start_price: Amount::from_btc(0.01).unwrap(),
+            auction_price: Amount::from_btc(0.008).unwrap(),
             txid: hash!("aabbccddeeff06acec3378cac65698c8138f3531b274d34dad131d0423f5cad5"),
         };
         let json = r#"
@@ -1098,8 +1346,8 @@ mod tests {
             num_tickets: 50,
             decay_const: 10000,
             fee_percentage: 4,
-            start_price: Amount::from_btc(0.01),
-            auction_price: Amount::from_btc(0.008),
+            start_price: Amount::from_btc(0.01).unwrap(),
+            auction_price: Amount::from_btc(0.008).unwrap(),
             txid: hash!("aabbccddeeff06acec3378cac65698c8138f3531b274d34dad131d0423f5cad5"),
             bids: vec![GetRequestBidsResultBid {
                 txid: hash!("11223554466f06acec3378cac65698c8138f3531b274d34dad131d0423f5cad5"),
@@ -1134,13 +1382,13 @@ mod tests {
 
     #[test]
     fn test_ListUnspentResult() {
-        let expected = ListUnspentResult {
+        let expected = ListUnspentResultEntry {
             txid: hash!("5a6a5685c04974448c9c80fb170ae7ca20c02bddd97d306ac0314b3a12b85cba"),
             vout: 37,
-            address: "2drnhKrVLEbjgD4sBdmFkTByNjDCJpFqT4W".into(),
+            address: addr!("2drnhKrVLEbjgD4sBdmFkTByNjDCJpFqT4W"),
             account: Some("".into()),
             script_pub_key: script!("76a914be70510653867b1c648b43cfb3b0edf8420f08d788ac"),
-            amount: Amount::from_btc(210000.0),
+            amount: Amount::from_btc(210000.0).unwrap(),
             amountcommitment: None,
             asset: hash!("9fda3adca5a106acec3378cac65698c8138f3531b274d34dad131d0423f5cad5"),
             assetcommitment: None,
@@ -1244,19 +1492,6 @@ mod tests {
             assert_eq!(d, vector.1);
         }
     }
-
-    //#[test]
-    //fn test_deserialize_hex() {
-    //	let vectors = vec![
-    //		(r#""01020304a1ff""#, vec![1,2,3,4,161,255]),
-    //		(r#""5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456""#,
-    //			sha256d::Hash::from_data(&[]).as_bytes()[..].into()),
-    //	];
-    //	for vector in vectors.into_iter() {
-    //		let d = deserialize_hex(deserializer!(vector.0)).unwrap();
-    //		assert_eq!(d, vector.1);
-    //	}
-    //}
 
     #[test]
     fn test_deserialize_hex_array_opt() {

@@ -453,7 +453,7 @@ pub trait RpcApi: Sized {
 
     fn import_priv_key(
         &self,
-        privkey: &SecretKey,
+        privkey: &String,
         label: Option<&str>,
         rescan: Option<bool>,
     ) -> Result<()> {

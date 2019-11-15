@@ -559,7 +559,7 @@ pub trait RpcApi: Sized {
         &self,
         utxos: &[json::CreateRawTransactionInput],
         outs: &HashMap<String, Amount>,
-        outs_assets: Option<&HashMap<String, String>>,
+        outs_assets: Option<&HashMap<Address, sha256d::Hash>>,
         locktime: Option<i64>,
     ) -> Result<String> {
         let outs_converted = serde_json::Map::from_iter(

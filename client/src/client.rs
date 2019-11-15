@@ -8,22 +8,24 @@
 // If not, see <http://creativecommons.org/publicdomain/zero/1.0/>.
 //
 
-use std::result;
+use std::collections::HashMap;
+use std::fs::File;
+use std::iter::FromIterator;
+use std::path::PathBuf;
+use std::{fmt, result};
 
-use bitcoin;
 use hex;
 use jsonrpc;
 use serde;
 use serde_json;
 
-use bitcoin::Address;
-use bitcoin_amount::Amount;
-use bitcoin_hashes::sha256d;
-use log::Level::Trace;
+use bitcoin::hashes::sha256d;
+use bitcoin::secp256k1::{self, SecretKey, Signature};
+use bitcoin::{Amount, OutPoint, PrivateKey, PublicKey};
+use rust_ocean::{Address, Block, BlockHeader, Transaction};
+use log::Level::Debug;
 use num_bigint::BigUint;
-use rust_ocean::{Block, BlockHeader, Transaction};
-use secp256k1::Signature;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
 
 use error::*;
 use json;
@@ -32,6 +34,30 @@ use queryable;
 /// Crate-specific Result type, shorthand for `std::result::Result` with our
 /// crate-specific Error type;
 pub type Result<T> = result::Result<T, Error>;
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct JsonOutPoint {
+    pub txid: sha256d::Hash,
+    pub vout: u32,
+}
+
+impl From<OutPoint> for JsonOutPoint {
+    fn from(o: OutPoint) -> JsonOutPoint {
+        JsonOutPoint {
+            txid: o.txid,
+            vout: o.vout,
+        }
+    }
+}
+
+impl Into<OutPoint> for JsonOutPoint {
+    fn into(self) -> OutPoint {
+        OutPoint {
+            txid: self.txid,
+            vout: self.vout,
+        }
+    }
+}
 
 /// Shorthand for converting a variable into a serde_json::Value.
 fn into_json<T>(val: T) -> Result<serde_json::Value>
@@ -53,9 +79,18 @@ where
 }
 
 /// Shorthand for `serde_json::Value::Null`.
-#[allow(unused)]
 fn null() -> serde_json::Value {
     serde_json::Value::Null
+}
+
+/// Shorthand for an empty serde_json::Value array.
+fn empty_arr() -> serde_json::Value {
+    serde_json::Value::Array(vec![])
+}
+
+/// Shorthand for an empty serde_json object.
+fn empty_obj() -> serde_json::Value {
+    serde_json::Value::Object(Default::default())
 }
 
 /// Handle default values in the argument list
@@ -106,6 +141,81 @@ fn handle_defaults<'a, 'b>(
     }
 }
 
+/// Convert a possible-null result into an Option.
+fn opt_result<T: for<'a> serde::de::Deserialize<'a>>(
+    result: serde_json::Value,
+) -> Result<Option<T>> {
+    if result == serde_json::Value::Null {
+        Ok(None)
+    } else {
+        Ok(serde_json::from_value(result)?)
+    }
+}
+
+/// Used to pass raw txs into the API.
+pub trait RawTx: Sized + Clone {
+    fn raw_hex(self) -> String;
+}
+
+impl<'a> RawTx for &'a Transaction {
+    fn raw_hex(self) -> String {
+        hex::encode(rust_ocean::encode::serialize(self))
+    }
+}
+
+impl<'a> RawTx for &'a [u8] {
+    fn raw_hex(self) -> String {
+        hex::encode(self)
+    }
+}
+
+impl<'a> RawTx for &'a Vec<u8> {
+    fn raw_hex(self) -> String {
+        hex::encode(self)
+    }
+}
+
+impl<'a> RawTx for &'a str {
+    fn raw_hex(self) -> String {
+        self.to_owned()
+    }
+}
+
+impl RawTx for String {
+    fn raw_hex(self) -> String {
+        self
+    }
+}
+
+/// The different authentication methods for the client.
+#[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+pub enum Auth {
+    None,
+    UserPass(String, String),
+    CookieFile(PathBuf),
+}
+
+impl Auth {
+    /// Convert into the arguments that jsonrpc::Client needs.
+    fn get_user_pass(self) -> Result<(Option<String>, Option<String>)> {
+        use std::io::Read;
+        match self {
+            Auth::None => Ok((None, None)),
+            Auth::UserPass(u, p) => Ok((Some(u), Some(p))),
+            Auth::CookieFile(path) => {
+                let mut file = File::open(path)?;
+                let mut contents = String::new();
+                file.read_to_string(&mut contents)?;
+                let mut split = contents.splitn(2, ":");
+                Ok((
+                    Some(split.next().ok_or(Error::InvalidCookieFile)?.into()),
+                    Some(split.next().ok_or(Error::InvalidCookieFile)?.into()),
+                ))
+            }
+        }
+    }
+}
+
 pub trait RpcApi: Sized {
     /// Call a `cmd` rpc with given `args` list
     fn call<T: for<'a> serde::de::Deserialize<'a>>(
@@ -125,7 +235,7 @@ pub trait RpcApi: Sized {
     fn add_multisig_address(
         &self,
         nrequired: usize,
-        keys: Vec<json::PubKeyOrAddress>,
+        keys: &[json::PubKeyOrAddress],
         label: Option<&str>,
         address_type: Option<json::AddressType>,
     ) -> Result<json::AddMultiSigAddressResult> {
@@ -138,19 +248,38 @@ pub trait RpcApi: Sized {
         self.call("addmultisigaddress", handle_defaults(&mut args, &[into_json("")?, null()]))
     }
 
+    fn load_wallet(&self, wallet: &str) -> Result<json::LoadWalletResult> {
+        self.call("loadwallet", &[wallet.into()])
+    }
+
+    fn unload_wallet(&self, wallet: Option<&str>) -> Result<()> {
+        let mut args = [opt_into_json(wallet)?];
+        self.call("unloadwallet", handle_defaults(&mut args, &[null()]))
+    }
+
+    fn create_wallet(
+        &self,
+        wallet: &str,
+        disable_private_keys: Option<bool>,
+    ) -> Result<json::LoadWalletResult> {
+        let mut args = [wallet.into(), opt_into_json(disable_private_keys)?];
+        self.call("createwallet", handle_defaults(&mut args, &[null()]))
+    }
+
     fn backup_wallet(&self, destination: Option<&str>) -> Result<()> {
         let mut args = [opt_into_json(destination)?];
         self.call("backupwallet", handle_defaults(&mut args, &[null()]))
     }
 
-    // TODO(stevenroose) use Privkey type
     // TODO(dpc): should we convert? Or maybe we should have two methods?
     //            just like with `getrawtransaction` it is sometimes useful
     //            to just get the string dump, without converting it into
     //            `bitcoin` type; Maybe we should made it `Queryable` by
     //            `Address`!
-    fn dump_priv_key(&self, address: &Address) -> Result<String> {
-        self.call("dumpprivkey", &[into_json(address)?])
+    fn dump_priv_key(&self, address: &Address) -> Result<SecretKey> {
+        let hex: String = self.call("dumpprivkey", &[address.to_string().into()])?;
+        let bytes = hex::decode(hex)?;
+        Ok(secp256k1::SecretKey::from_slice(&bytes)?)
     }
 
     fn encrypt_wallet(&self, passphrase: &str) -> Result<()> {
@@ -169,7 +298,7 @@ pub trait RpcApi: Sized {
     fn get_block(&self, hash: &sha256d::Hash) -> Result<Block> {
         let hex: String = self.call("getblock", &[into_json(hash)?, 0.into()])?;
         let bytes = hex::decode(hex)?;
-        Ok(bitcoin::consensus::encode::deserialize(&bytes)?)
+        Ok(rust_ocean::encode::deserialize(&bytes)?)
     }
 
     fn get_block_hex(&self, hash: &sha256d::Hash) -> Result<String> {
@@ -184,7 +313,7 @@ pub trait RpcApi: Sized {
     fn get_block_header_raw(&self, hash: &sha256d::Hash) -> Result<BlockHeader> {
         let hex: String = self.call("getblockheader", &[into_json(hash)?, false.into()])?;
         let bytes = hex::decode(hex)?;
-        Ok(bitcoin::consensus::encode::deserialize(&bytes)?)
+        Ok(rust_ocean::encode::deserialize(&bytes)?)
     }
 
     fn get_block_header_verbose(&self, hash: &sha256d::Hash) -> Result<json::GetBlockHeaderResult> {
@@ -224,7 +353,7 @@ pub trait RpcApi: Sized {
         let mut args = [into_json(txid)?, into_json(false)?, opt_into_json(block_hash)?];
         let hex: String = self.call("getrawtransaction", handle_defaults(&mut args, &[null()]))?;
         let bytes = hex::decode(hex)?;
-        Ok(bitcoin::consensus::encode::deserialize(&bytes)?)
+        Ok(rust_ocean::encode::deserialize(&bytes)?)
     }
 
     fn get_raw_transaction_hex(
@@ -245,9 +374,26 @@ pub trait RpcApi: Sized {
         self.call("getrawtransaction", handle_defaults(&mut args, &[null()]))
     }
 
+    fn get_block_filter(&self, block_hash: &sha256d::Hash) -> Result<json::GetBlockFilterResult> {
+        self.call("getblockfilter", &[into_json(block_hash)?])
+    }
+
+    fn get_balance(
+        &self,
+        minconf: Option<usize>,
+        include_watchonly: Option<bool>,
+    ) -> Result<Amount> {
+        let mut args = ["*".into(), opt_into_json(minconf)?, opt_into_json(include_watchonly)?];
+        Ok(Amount::from_btc(
+            self.call("getbalance", handle_defaults(&mut args, &[false.into(), null()]))?,
+        )?)
+    }
+
     fn get_received_by_address(&self, address: &Address, minconf: Option<u32>) -> Result<Amount> {
-        let mut args = [into_json(address)?, opt_into_json(minconf)?];
-        self.call("getreceivedbyaddress", handle_defaults(&mut args, &[null()]))
+        let mut args = [address.to_string().into(), opt_into_json(minconf)?];
+        Ok(Amount::from_btc(
+            self.call("getreceivedbyaddress", handle_defaults(&mut args, &[null()]))?,
+        )?)
     }
 
     fn get_transaction(
@@ -256,7 +402,23 @@ pub trait RpcApi: Sized {
         include_watchonly: Option<bool>,
     ) -> Result<json::GetTransactionResult> {
         let mut args = [into_json(txid)?, opt_into_json(include_watchonly)?];
-        self.call("getrawtransaction", handle_defaults(&mut args, &[null()]))
+        self.call("gettransaction", handle_defaults(&mut args, &[null()]))
+    }
+
+    fn list_transactions(
+        &self,
+        label: Option<&str>,
+        count: Option<usize>,
+        skip: Option<usize>,
+        include_watchonly: Option<bool>,
+    ) -> Result<Vec<json::ListTransactionResult>> {
+        let mut args = [
+            label.unwrap_or("*").into(),
+            opt_into_json(count)?,
+            opt_into_json(skip)?,
+            opt_into_json(include_watchonly)?,
+        ];
+        self.call("listtransactions", handle_defaults(&mut args, &[10.into(), 0.into(), null()]))
     }
 
     fn get_tx_out(
@@ -266,17 +428,73 @@ pub trait RpcApi: Sized {
         include_mempool: Option<bool>,
     ) -> Result<Option<json::GetTxOutResult>> {
         let mut args = [into_json(txid)?, into_json(vout)?, opt_into_json(include_mempool)?];
-        self.call("gettxout", handle_defaults(&mut args, &[null()]))
+        opt_result(self.call("gettxout", handle_defaults(&mut args, &[null()]))?)
+    }
+
+    fn get_tx_out_proof(
+        &self,
+        txids: &[sha256d::Hash],
+        block_hash: Option<&sha256d::Hash>,
+    ) -> Result<Vec<u8>> {
+        let mut args = [into_json(txids)?, opt_into_json(block_hash)?];
+        let hex: String = self.call("gettxoutproof", handle_defaults(&mut args, &[null()]))?;
+        Ok(hex::decode(&hex)?)
+    }
+
+    fn import_public_key(
+        &self,
+        pubkey: &PublicKey,
+        label: Option<&str>,
+        rescan: Option<bool>,
+    ) -> Result<()> {
+        let mut args = [pubkey.to_string().into(), opt_into_json(label)?, opt_into_json(rescan)?];
+        self.call("importpubkey", handle_defaults(&mut args, &[into_json("")?, null()]))
     }
 
     fn import_priv_key(
         &self,
-        privkey: &str,
+        privkey: &SecretKey,
         label: Option<&str>,
         rescan: Option<bool>,
     ) -> Result<()> {
-        let mut args = [into_json(privkey)?, into_json(label)?, opt_into_json(rescan)?];
+        let mut args = [privkey.to_string().into(), opt_into_json(label)?, opt_into_json(rescan)?];
         self.call("importprivkey", handle_defaults(&mut args, &[into_json("")?, null()]))
+    }
+
+    fn import_address(
+        &self,
+        address: &Address,
+        label: Option<&str>,
+        rescan: Option<bool>,
+        p2sh: Option<bool>,
+    ) -> Result<()> {
+        let mut args = [
+            address.to_string().into(),
+            opt_into_json(label)?,
+            opt_into_json(rescan)?,
+            opt_into_json(p2sh)?,
+        ];
+        self.call(
+            "importaddress",
+            handle_defaults(&mut args, &[into_json("")?, true.into(), null()]),
+        )
+    }
+
+    fn import_multi(
+        &self,
+        requests: &[json::ImportMultiRequest],
+        options: Option<&json::ImportMultiOptions>,
+    ) -> Result<Vec<json::ImportMultiResult>> {
+        let mut json_requests = Vec::with_capacity(requests.len());
+        for req in requests {
+            json_requests.push(serde_json::to_value(req)?);
+        }
+        let mut args = [json_requests.into(), opt_into_json(options)?];
+        self.call("importmulti", handle_defaults(&mut args, &[null()]))
+    }
+
+    fn set_label(&self, address: &Address, label: &str) -> Result<()> {
+        self.call("setlabel", &[address.to_string().into(), label.into()])
     }
 
     fn key_pool_refill(&self, new_size: Option<usize>) -> Result<()> {
@@ -288,10 +506,10 @@ pub trait RpcApi: Sized {
         &self,
         minconf: Option<usize>,
         maxconf: Option<usize>,
-        addresses: Option<Vec<&Address>>,
+        addresses: Option<&[Address]>,
         include_unsafe: Option<bool>,
         asset: Option<&str>,
-    ) -> Result<Vec<json::ListUnspentResult>> {
+    ) -> Result<Vec<json::ListUnspentResultEntry>> {
         let mut args = [
             opt_into_json(minconf)?,
             opt_into_json(maxconf)?,
@@ -299,101 +517,141 @@ pub trait RpcApi: Sized {
             opt_into_json(include_unsafe)?,
             opt_into_json(asset)?,
         ];
-        let defaults = [
-            into_json(0)?,
-            into_json(9999999)?,
-            into_json::<&[Address]>(&[])?,
-            into_json(true)?,
-            null(),
-        ];
+        let defaults = [into_json(0)?, into_json(9999999)?, empty_arr(), into_json(true)?, null()];
         self.call("listunspent", handle_defaults(&mut args, &defaults))
+    }
+
+    /// To unlock, use [unlock_unspent].
+    fn lock_unspent(&self, outputs: &[OutPoint]) -> Result<bool> {
+        let outputs: Vec<_> = outputs
+            .into_iter()
+            .map(|o| serde_json::to_value(JsonOutPoint::from(*o)).unwrap())
+            .collect();
+        self.call("lockunspent", &[false.into(), outputs.into()])
+    }
+
+    fn unlock_unspent(&self, outputs: &[OutPoint]) -> Result<bool> {
+        let outputs: Vec<_> = outputs
+            .into_iter()
+            .map(|o| serde_json::to_value(JsonOutPoint::from(*o)).unwrap())
+            .collect();
+        self.call("lockunspent", &[true.into(), outputs.into()])
+    }
+
+    fn list_received_by_address(
+        &self,
+        address_filter: Option<&Address>,
+        minconf: Option<u32>,
+        include_empty: Option<bool>,
+        include_watchonly: Option<bool>,
+    ) -> Result<Vec<json::ListReceivedByAddressResult>> {
+        let mut args = [
+            opt_into_json(minconf)?,
+            opt_into_json(include_empty)?,
+            opt_into_json(include_watchonly)?,
+            opt_into_json(address_filter)?,
+        ];
+        let defaults = [1.into(), false.into(), false.into(), null()];
+        self.call("listreceivedbyaddress", handle_defaults(&mut args, &defaults))
     }
 
     fn create_raw_transaction_hex(
         &self,
         utxos: &[json::CreateRawTransactionInput],
-        outs: Option<&HashMap<String, f64>>,
+        outs: &HashMap<String, Amount>,
         outs_assets: Option<&HashMap<String, String>>,
         locktime: Option<i64>,
     ) -> Result<String> {
+        let outs_converted = serde_json::Map::from_iter(
+            outs.iter().map(|(k, v)| (k.clone(), serde_json::Value::from(v.as_btc()))),
+        );
         let mut args = [
             into_json(utxos)?,
-            opt_into_json(outs)?,
+            into_json(outs_converted)?,
             opt_into_json(locktime)?,
             opt_into_json(outs_assets)?,
         ];
-        let defaults =
-            [into_json::<&[json::CreateRawTransactionInput]>(&[])?, into_json(0i64)?, null()];
+        let defaults = [into_json(0i64)?, null()];
         self.call("createrawtransaction", handle_defaults(&mut args, &defaults))
     }
 
     fn create_raw_transaction(
         &self,
         utxos: &[json::CreateRawTransactionInput],
-        outs: Option<&HashMap<String, f64>>,
+        outs: &HashMap<String, Amount>,
         outs_assets: Option<&HashMap<String, String>>,
         locktime: Option<i64>,
     ) -> Result<Transaction> {
         let hex: String = self.create_raw_transaction_hex(utxos, outs, outs_assets, locktime)?;
         let bytes = hex::decode(hex)?;
-        Ok(bitcoin::consensus::encode::deserialize(&bytes)?)
+        Ok(rust_ocean::encode::deserialize(&bytes)?)
     }
 
-    fn sign_raw_transaction(
+    fn fund_raw_transaction<R: RawTx>(
         &self,
-        tx: json::HexBytes,
+        tx: R,
+        options: Option<&json::FundRawTransactionOptions>,
+        is_witness: Option<bool>,
+    ) -> Result<json::FundRawTransactionResult> {
+        let mut args = [tx.raw_hex().into(), opt_into_json(options)?, opt_into_json(is_witness)?];
+        let defaults = [empty_obj(), null()];
+        self.call("fundrawtransaction", handle_defaults(&mut args, &defaults))
+    }
+
+    #[deprecated]
+    fn sign_raw_transaction<R: RawTx>(
+        &self,
+        tx: R,
         utxos: Option<&[json::SignRawTransactionInput]>,
-        private_keys: Option<&[&str]>,
+        private_keys: Option<&[PrivateKey]>,
         sighash_type: Option<json::SigHashType>,
     ) -> Result<json::SignRawTransactionResult> {
         let mut args = [
-            into_json(tx)?,
+            tx.raw_hex().into(),
             opt_into_json(utxos)?,
             opt_into_json(private_keys)?,
             opt_into_json(sighash_type)?,
         ];
-        let defaults = [
-            into_json::<&[json::SignRawTransactionInput]>(&[])?,
-            into_json::<&[&str]>(&[])?,
-            null(),
-        ];
+        let defaults = [empty_arr(), empty_arr(), null()];
         self.call("signrawtransaction", handle_defaults(&mut args, &defaults))
     }
 
-    fn sign_raw_transaction_with_key(
+    fn sign_raw_transaction_with_wallet<R: RawTx>(
         &self,
-        tx: json::HexBytes,
-        privkeys: &[&str],
+        tx: R,
+        utxos: Option<&[json::SignRawTransactionInput]>,
+        sighash_type: Option<json::SigHashType>,
+    ) -> Result<json::SignRawTransactionResult> {
+        let mut args = [tx.raw_hex().into(), opt_into_json(utxos)?, opt_into_json(sighash_type)?];
+        let defaults = [empty_arr(), null()];
+        self.call("signrawtransactionwithwallet", handle_defaults(&mut args, &defaults))
+    }
+
+    fn sign_raw_transaction_with_key<R: RawTx>(
+        &self,
+        tx: R,
+        privkeys: &[PrivateKey],
         prevtxs: Option<&[json::SignRawTransactionInput]>,
         sighash_type: Option<json::SigHashType>,
     ) -> Result<json::SignRawTransactionResult> {
         let mut args = [
-            into_json(tx)?,
+            tx.raw_hex().into(),
             into_json(privkeys)?,
             opt_into_json(prevtxs)?,
             opt_into_json(sighash_type)?,
         ];
-        let defaults = [into_json::<&[json::SignRawTransactionInput]>(&[])?, null()];
+        let defaults = [empty_arr(), null()];
         self.call("signrawtransactionwithkey", handle_defaults(&mut args, &defaults))
     }
 
-    fn test_mempool_accept(&self, rawtxs: &[&str]) -> Result<Vec<json::TestMempoolAccept>> {
-        self.call("testmempoolaccept", &[into_json(rawtxs)?])
+    fn test_mempool_accept<R: RawTx>(&self, rawtxs: &[R]) -> Result<Vec<json::TestMempoolAccept>> {
+        let hexes: Vec<serde_json::Value> =
+            rawtxs.to_vec().into_iter().map(|r| r.raw_hex().into()).collect();
+        self.call("testmempoolaccept", &[hexes.into()])
     }
 
     fn stop(&self) -> Result<()> {
         self.call("stop", &[])
-    }
-
-    fn sign_raw_transaction_with_wallet(
-        &self,
-        tx: json::HexBytes,
-        utxos: Option<&[json::SignRawTransactionInput]>,
-        sighash_type: Option<json::SigHashType>,
-    ) -> Result<json::SignRawTransactionResult> {
-        let mut args = [into_json(tx)?, opt_into_json(utxos)?, opt_into_json(sighash_type)?];
-        let defaults = [into_json::<&[json::SignRawTransactionInput]>(&[])?, null()];
-        self.call("signrawtransactionwithwallet", handle_defaults(&mut args, &defaults))
     }
 
     fn verify_message(
@@ -402,7 +660,7 @@ pub trait RpcApi: Sized {
         signature: &Signature,
         message: &str,
     ) -> Result<bool> {
-        let args = [into_json(address)?, into_json(signature)?, into_json(message)?];
+        let args = [address.to_string().into(), signature.to_string().into(), into_json(message)?];
         self.call("verifymessage", &args)
     }
 
@@ -418,28 +676,25 @@ pub trait RpcApi: Sized {
     }
 
     /// Generate new address under own control
-    ///
-    /// If 'account' is specified (DEPRECATED), it is added to the address book
-    /// so payments received with the address will be credited to 'account'.
     fn get_new_address(
         &self,
-        account: Option<&str>,
+        label: Option<&str>,
         address_type: Option<json::AddressType>,
-    ) -> Result<String> {
-        self.call("getnewaddress", &[opt_into_json(account)?, opt_into_json(address_type)?])
+    ) -> Result<Address> {
+        self.call("getnewaddress", &[opt_into_json(label)?, opt_into_json(address_type)?])
     }
 
     /// Mine `block_num` blocks and pay coinbase to `address`
     ///
     /// Returns hashes of the generated blocks
-    fn generate_to_address(&self, block_num: u64, address: &str) -> Result<Vec<sha256d::Hash>> {
-        self.call("generatetoaddress", &[block_num.into(), address.into()])
+    fn generate_to_address(&self, block_num: u64, address: &Address) -> Result<Vec<sha256d::Hash>> {
+        self.call("generatetoaddress", &[block_num.into(), address.to_string().into()])
     }
 
     /// Mine up to block_num blocks immediately (before the RPC call returns)
     /// to an address in the wallet.
-    fn generate(&self, block_num: u64) -> Result<Vec<sha256d::Hash>> {
-        self.call("generate", &[block_num.into()])
+    fn generate(&self, block_num: u64, maxtries: Option<u64>) -> Result<Vec<sha256d::Hash>> {
+        self.call("generate", &[block_num.into(), opt_into_json(maxtries)?])
     }
 
     /// Mark a block as invalid by `block_hash`
@@ -447,24 +702,34 @@ pub trait RpcApi: Sized {
         self.call("invalidateblock", &[into_json(block_hash)?])
     }
 
+    /// Mark a block as valid by `block_hash`
+    fn reconsider_block(&self, block_hash: &sha256d::Hash) -> Result<()> {
+        self.call("reconsiderblock", &[into_json(block_hash)?])
+    }
+
+    /// Get txids of all transactions in a memory pool
+    fn get_raw_mempool(&self) -> Result<Vec<sha256d::Hash>> {
+        self.call("getrawmempool", &[])
+    }
+
     fn send_to_address(
         &self,
-        addr: &str,
-        amount: f64,
+        address: &Address,
+        amount: Amount,
         comment: Option<&str>,
         comment_to: Option<&str>,
         substract_fee: Option<bool>,
         assetlabel: Option<&str>,
     ) -> Result<sha256d::Hash> {
         let mut args = [
-            into_json(addr)?,
-            into_json(amount)?,
+            address.to_string().into(),
+            into_json(amount.as_btc())?,
             opt_into_json(comment)?,
             opt_into_json(comment_to)?,
             opt_into_json(substract_fee)?,
             opt_into_json(assetlabel)?,
         ];
-        self.call("sendtoaddress", handle_defaults(&mut args, &["".into(), "".into(), null()]))
+        self.call("sendtoaddress", handle_defaults(&mut args, &vec![null(); 6]))
     }
 
     fn send_any_to_address(
@@ -509,8 +774,8 @@ pub trait RpcApi: Sized {
         self.call("ping", &[])
     }
 
-    fn send_raw_transaction(&self, tx: &str) -> Result<String> {
-        self.call("sendrawtransaction", &[into_json(tx)?])
+    fn send_raw_transaction<R: RawTx>(&self, tx: R) -> Result<sha256d::Hash> {
+        self.call("sendrawtransaction", &[tx.raw_hex().into()])
     }
 
     fn estimate_smartfee<E>(
@@ -552,14 +817,25 @@ pub struct Client {
     client: jsonrpc::client::Client,
 }
 
-impl Client {
-    /// Creates a client to a oceand JSON-RPC server.
-    pub fn new(url: String, user: Option<String>, pass: Option<String>) -> Self {
-        debug_assert!(pass.is_none() || user.is_some());
+impl fmt::Debug for Client {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "bitcoincore_rpc::Client(jsonrpc::Client(last_nonce={}))",
+            self.client.last_nonce()
+        )
+    }
+}
 
-        Client {
+impl Client {
+    /// Creates a client to a bitcoind JSON-RPC server.
+    ///
+    /// Can only return [Err] when using cookie authentication.
+    pub fn new(url: String, auth: Auth) -> Result<Self> {
+        let (user, pass) = auth.get_user_pass()?;
+        Ok(Client {
             client: jsonrpc::client::Client::new(url, user, pass),
-        }
+        })
     }
 
     /// Create a new Client.
@@ -567,6 +843,11 @@ impl Client {
         Client {
             client: client,
         }
+    }
+
+    /// Get the underlying JSONRPC client.
+    pub fn get_jsonrpc_client(&self) -> &jsonrpc::client::Client {
+        &self.client
     }
 }
 
@@ -577,27 +858,44 @@ impl RpcApi for Client {
         cmd: &str,
         args: &[serde_json::Value],
     ) -> Result<T> {
-        let req = self.client.build_request(cmd, args);
-        if log_enabled!(Trace) {
-            trace!("JSON-RPC request: {}", serde_json::to_string(&req).unwrap());
+        let req = self.client.build_request(&cmd, &args);
+        if log_enabled!(Debug) {
+            debug!("JSON-RPC request: {}", serde_json::to_string(&req).unwrap());
         }
 
         let resp = self.client.send_request(&req).map_err(Error::from);
-        if log_enabled!(Trace) && resp.is_ok() {
+        if log_enabled!(Debug) && resp.is_ok() {
             let resp = resp.as_ref().unwrap();
-            trace!("JSON-RPC response: {}", serde_json::to_string(resp).unwrap());
+            debug!("JSON-RPC response: {}", serde_json::to_string(resp).unwrap());
         }
         Ok(resp?.into_result()?)
     }
 }
 
-#[cfg(tests)]
+#[cfg(test)]
 mod tests {
     use super::*;
+    use rust_ocean;
     use serde_json;
 
     #[test]
-    fn test_handle_defaults() -> Result<()> {
+    fn test_raw_tx() {
+        use rust_ocean::encode;
+        let client = Client::new("http://localhost/".into(), Auth::None).unwrap();
+        let tx: rust_ocean::Transaction = encode::deserialize(&hex::decode("020000000001eb04b68e9a26d116046c76e8ff47332fb71dda90ff4bef5370f2\
+             5226d3bc09fc0000000000feffffff0201230f4f5d4b7c6fa845806ee4f67713\
+             459e1b69e8e60fcee2e4940c7a0d5de1b20100000002540bd71c001976a91448\
+             633e2c0ee9495dd3f9c43732c47f4702a362c888ac01230f4f5d4b7c6fa84580\
+             6ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b2010000000000000ce400\
+             0000000000").unwrap()).unwrap();
+
+        assert!(client.send_raw_transaction(&tx).is_err());
+        assert!(client.send_raw_transaction(&encode::serialize(&tx)).is_err());
+        assert!(client.send_raw_transaction("deadbeef").is_err());
+        assert!(client.send_raw_transaction("deadbeef".to_owned()).is_err());
+    }
+
+    fn test_handle_defaults_inner() -> Result<()> {
         {
             let mut args = [into_json(0)?, null(), null()];
             let defaults = [into_json(1)?, into_json(2)?];
@@ -647,5 +945,10 @@ mod tests {
             assert_eq!(handle_defaults(&mut args, &defaults), &res);
         }
         Ok(())
+    }
+
+    #[test]
+    fn test_handle_defaults() {
+        test_handle_defaults_inner().unwrap();
     }
 }

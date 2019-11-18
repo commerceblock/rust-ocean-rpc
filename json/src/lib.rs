@@ -109,7 +109,9 @@ pub struct GetBlockResult {
     pub difficulty: BigUint,
     #[serde(with = "::serde_hex")]
     pub chainwork: Vec<u8>,
-    pub n_tx: usize,
+    pub contracthash: sha256d::Hash,
+    pub attestationhash: sha256d::Hash,
+    pub mappinghash: sha256d::Hash,
     pub previousblockhash: Option<sha256d::Hash>,
     pub nextblockhash: Option<sha256d::Hash>,
 }
@@ -132,7 +134,9 @@ pub struct GetBlockHeaderResult {
     pub difficulty: BigUint,
     #[serde(with = "::serde_hex")]
     pub chainwork: Vec<u8>,
-    pub n_tx: usize,
+    pub contracthash: sha256d::Hash,
+    pub attestationhash: sha256d::Hash,
+    pub mappinghash: sha256d::Hash,
     pub previousblockhash: Option<sha256d::Hash>,
     pub nextblockhash: Option<sha256d::Hash>,
 }
@@ -181,6 +185,9 @@ pub struct GetRawTransactionResultVin {
     /// Not provided for coinbase txs.
     #[serde(default, deserialize_with = "deserialize_hex_array_opt")]
     pub txinwitness: Option<Vec<Vec<u8>>>,
+    /// Pegin flag
+    #[serde(rename = "is_pegin")]
+    pub is_pegin: Option<bool>,
 }
 
 impl GetRawTransactionResultVin {
@@ -217,6 +224,8 @@ pub struct GetRawTransactionResultVout {
     pub value: Amount,
     pub n: u32,
     pub script_pub_key: GetRawTransactionResultVoutScriptPubKey,
+    pub asset: sha256d::Hash,
+    pub assetlabel: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
@@ -963,7 +972,9 @@ mod tests {
             bits: "1d00ffff".into(),
             difficulty: 1u64.into(),
             chainwork: hex!("0000000000000000000000000000000000000000000000000000000300030003"),
-            n_tx: 1,
+            contracthash: hash!("43d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
+            attestationhash: hash!("53d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
+            mappinghash: hash!("63d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
             previousblockhash: Some(hash!(
                 "00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206"
             )),
@@ -991,7 +1002,9 @@ mod tests {
               "bits": "1d00ffff",
               "difficulty": 1,
               "chainwork": "0000000000000000000000000000000000000000000000000000000300030003",
-              "nTx": 1,
+              "contracthash": "43d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7",
+              "attestationhash": "53d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7",
+              "mappinghash": "63d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7",
               "previousblockhash": "00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206",
               "nextblockhash": "000000008b896e272758da5297bcd98fdc6d97c9b765ecec401e286dc1fdbe10"
             }
@@ -1014,7 +1027,9 @@ mod tests {
             bits: "1959273b".into(),
             difficulty: 48174374u64.into(),
             chainwork: hex!("0000000000000000000000000000000000000000000000a3c78921878ecbafd4"),
-            n_tx: 2647,
+            contracthash: hash!("43d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
+            attestationhash: hash!("53d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
+            mappinghash: hash!("63d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
             previousblockhash: Some(hash!(
                 "000000000000002937dcaffd8367cfb05cd9ef2e3bd7a081de82696f70e719d9"
             )),
@@ -1036,7 +1051,9 @@ mod tests {
               "bits": "1959273b",
               "difficulty": 48174374.44122773,
               "chainwork": "0000000000000000000000000000000000000000000000a3c78921878ecbafd4",
-              "nTx": 2647,
+              "contracthash": "43d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7",
+              "attestationhash": "53d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7",
+              "mappinghash": "63d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7",
               "previousblockhash": "000000000000002937dcaffd8367cfb05cd9ef2e3bd7a081de82696f70e719d9",
               "nextblockhash": "00000000000000331dddb553312687a4be62635ad950cde36ebc977c702d2791"
             }
@@ -1114,12 +1131,15 @@ mod tests {
                                         hex!("483045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c012103dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2d"),}),
 				sequence: 4294967294,
 				txinwitness: None,
-                coinbase: None
+                coinbase: None,
+                is_pegin: Some(false),
 
 			}],
 			vout: vec![GetRawTransactionResultVout{
 				value: Amount::from_btc(44.98834461).unwrap(),
 				n: 0,
+                asset: hash!("9fda3adca5a106acec3378cac65698c8138f3531b274d34dad131d0423f5cad5"),
+                assetlabel: None,
 				script_pub_key: GetRawTransactionResultVoutScriptPubKey{
 					asm: "OP_DUP OP_HASH160 f602e88b2b5901d8aab15ebe4a97cf92ec6e03b3 OP_EQUALVERIFY OP_CHECKSIG".into(),
 					hex: hex!("76a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac"),
@@ -1130,6 +1150,8 @@ mod tests {
 			}, GetRawTransactionResultVout{
 				value: Amount::from_btc(1.0).unwrap(),
 				n: 1,
+                asset: hash!("9fda3adca5a106acec3378cac65698c8138f3531b274d34dad131d0423f5cad6"),
+                assetlabel: Some("CBD".into()),
 				script_pub_key: GetRawTransactionResultVoutScriptPubKey{
 					asm: "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG".into(),
 					hex: hex!("76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac"),
@@ -1160,13 +1182,15 @@ mod tests {
 					"asm": "3045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c[ALL] 03dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2d",
 					"hex": "483045022100e85425f6d7c589972ee061413bcf08dc8c8e589ce37b217535a42af924f0e4d602205c9ba9cb14ef15513c9d946fa1c4b797883e748e8c32171bdf6166583946e35c012103dae30a4d7870cd87b45dd53e6012f71318fdd059c1c2623b8cc73f8af287bb2d"
 				  },
-				  "sequence": 4294967294
+				  "sequence": 4294967294,
+                  "is_pegin": false
 				}
 			  ],
 			  "vout": [
 				{
 				  "value": 44.98834461,
 				  "n": 0,
+                  "asset": "9fda3adca5a106acec3378cac65698c8138f3531b274d34dad131d0423f5cad5",
 				  "scriptPubKey": {
 					"asm": "OP_DUP OP_HASH160 f602e88b2b5901d8aab15ebe4a97cf92ec6e03b3 OP_EQUALVERIFY OP_CHECKSIG",
 					"hex": "76a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac",
@@ -1180,6 +1204,8 @@ mod tests {
 				{
 				  "value": 1.00000000,
 				  "n": 1,
+                  "asset": "9fda3adca5a106acec3378cac65698c8138f3531b274d34dad131d0423f5cad6",
+                  "assetlabel": "CBD",
 				  "scriptPubKey": {
 					"asm": "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG",
 					"hex": "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac",

@@ -201,6 +201,12 @@ pub trait RpcApi: Sized {
         self.call("getblockchaininfo", &[])
     }
 
+    /// Returns a data structure containing various state info specific
+    /// to the sidechain.
+    fn get_sidechain_info(&self) -> Result<json::GetSidechainInfoResult> {
+        self.call("getsidechaininfo", &[])
+    }
+
     /// Returns the numbers of block in the longest chain.
     fn get_block_count(&self) -> Result<u64> {
         self.call("getblockcount", &[])

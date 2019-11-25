@@ -55,7 +55,7 @@ impl error::Error for GetterError {
         }
     }
 
-    fn cause(&self) -> Option<&error::Error> {
+    fn cause(&self) -> Option<&dyn error::Error> {
         match *self {
             GetterError::FromHex(ref e) => Some(e),
             GetterError::BitcoinSerialization(ref e) => Some(e),

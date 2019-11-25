@@ -368,6 +368,22 @@ pub struct GetBlockchainInfoResult {
     pub bip9_softforks: Value,
 }
 
+/// Models the result of "getsidechaininfo"
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct GetSidechainInfoResult {
+    /// The fedpegscript in hex
+    pub fedpegscript: String,
+    /// The pegged asset type in hex
+    pub pegged_asset: String,
+    /// The minimum difficulty parent chain header target.
+    pub min_peg_diff: String,
+    /// The parent genesis blockhash as source of pegged-in funds
+    pub parent_blockhash: String,
+    /// Object containing PUBKEY_ADDRESS, BLINDED_ADDRESS, SECRET_KEY
+    /// and SCRIPT_ADDRESS address type prefixes
+    pub addr_prefixes: Value,
+}
+
 /// Status of a softfork
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub struct Softfork {

@@ -17,9 +17,9 @@
 #![crate_type = "rlib"]
 
 extern crate bitcoin;
-extern crate rust_ocean;
 extern crate hex;
 extern crate num_bigint;
+extern crate rust_ocean;
 #[allow(unused)]
 #[macro_use] // `macro_use` is needed for v1.24.0 compilation.
 extern crate serde;
@@ -30,8 +30,8 @@ use std::str::FromStr;
 use bitcoin::hashes::{sha256, sha256d};
 use bitcoin::util::bip158;
 use bitcoin::{Amount, PrivateKey, PublicKey, Script};
-use rust_ocean::{Address, Transaction, encode};
 use num_bigint::BigUint;
+use rust_ocean::{encode, Address, Transaction};
 use serde::de::Error as SerdeError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -537,6 +537,22 @@ pub struct GetBlockchainInfoResult {
     pub bip9_softforks: Value,
 }
 
+/// Models the result of "getsidechaininfo"
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct GetSidechainInfoResult {
+    /// The fedpegscript in hex
+    pub fedpegscript: String,
+    /// The pegged asset type in hex
+    pub pegged_asset: String,
+    /// The minimum difficulty parent chain header target.
+    pub min_peg_diff: String,
+    /// The parent genesis blockhash as source of pegged-in funds
+    pub parent_blockhash: String,
+    /// Object containing PUBKEY_ADDRESS, BLINDED_ADDRESS, SECRET_KEY
+    /// and SCRIPT_ADDRESS address type prefixes
+    pub addr_prefixes: Value,
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ImportMultiRequestScriptPubkey<'a> {
     Address(&'a Address),
@@ -973,7 +989,9 @@ mod tests {
             difficulty: 1u64.into(),
             chainwork: hex!("0000000000000000000000000000000000000000000000000000000300030003"),
             contracthash: hash!("43d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
-            attestationhash: hash!("53d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
+            attestationhash: hash!(
+                "53d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"
+            ),
             mappinghash: hash!("63d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
             previousblockhash: Some(hash!(
                 "00000000b873e79784647a6c82962c70d228557d24a747ea4d1b8bbe878e1206"
@@ -1028,7 +1046,9 @@ mod tests {
             difficulty: 48174374u64.into(),
             chainwork: hex!("0000000000000000000000000000000000000000000000a3c78921878ecbafd4"),
             contracthash: hash!("43d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
-            attestationhash: hash!("53d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
+            attestationhash: hash!(
+                "53d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"
+            ),
             mappinghash: hash!("63d8a6f622182a4e844022bbc8aa51c63f6476708ad5cc5c451f2933753440d7"),
             previousblockhash: Some(hash!(
                 "000000000000002937dcaffd8367cfb05cd9ef2e3bd7a081de82696f70e719d9"

@@ -1164,7 +1164,7 @@ mod tests {
 					asm: "OP_DUP OP_HASH160 f602e88b2b5901d8aab15ebe4a97cf92ec6e03b3 OP_EQUALVERIFY OP_CHECKSIG".into(),
 					hex: hex!("76a914f602e88b2b5901d8aab15ebe4a97cf92ec6e03b388ac"),
 					type_: Some("pubkeyhash".into()),
-					addresses: Some(vec![addr!("1HXfr2qBwT4qGZYn8FczNy68rw5dwG8trc")]),
+					addresses: Some(vec![addr!("CMAMyHorv18WKKTvg5Kifi8ap8CuSJUxXT")]),
                     req_sigs: Some(1),
 				},
 			}, GetRawTransactionResultVout{
@@ -1176,7 +1176,7 @@ mod tests {
 					asm: "OP_DUP OP_HASH160 687ffeffe8cf4e4c038da46a9b1d37db385a472d OP_EQUALVERIFY OP_CHECKSIG".into(),
 					hex: hex!("76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac"),
                     type_: Some("pubkeyhash".into()),
-					addresses: Some(vec![addr!("1HXfr2qBwT4qGZYn8FczNy68rw5dwG8trc")]),
+					addresses: Some(vec![addr!("CfNiN39BCkzkj26bG2uXhKxN18DUeAGYkY")]),
                     req_sigs: None,
 				},
 			}],
@@ -1217,7 +1217,7 @@ mod tests {
 					"reqSigs": 1,
 					"type": "pubkeyhash",
 					"addresses": [
-					  "1HXfr2qBwT4qGZYn8FczNy68rw5dwG8trc"
+					  "CMAMyHorv18WKKTvg5Kifi8ap8CuSJUxXT"
 					]
 				  }
 				},
@@ -1231,7 +1231,7 @@ mod tests {
 					"hex": "76a914687ffeffe8cf4e4c038da46a9b1d37db385a472d88ac",
 					"type": "pubkeyhash",
 					"addresses": [
-					  "1HXfr2qBwT4qGZYn8FczNy68rw5dwG8trc"
+					  "CfNiN39BCkzkj26bG2uXhKxN18DUeAGYkY"
 					]
 				  }
 				}

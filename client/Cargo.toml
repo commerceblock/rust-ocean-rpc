@@ -20,7 +20,7 @@ path = "src/lib.rs"
 
 [dependencies]
 ocean-rpc-json = { version = "0.8", path = "../json" }
-rust-ocean = { git = "https://github.com/commerceblock/rust-ocean", features = ["serde-feature"] }
+rust-ocean = { git = "https://github.com/commerceblock/rust-ocean", features = ["serde-feature"], version = "0.10" }
 log = "0.4.5"
 jsonrpc = "0.11"
 

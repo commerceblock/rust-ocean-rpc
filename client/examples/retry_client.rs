@@ -9,8 +9,8 @@
 //
 
 extern crate bitcoin;
-extern crate ocean_rpc;
 extern crate jsonrpc;
+extern crate ocean_rpc;
 extern crate serde;
 extern crate serde_json;
 

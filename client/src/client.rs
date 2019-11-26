@@ -22,9 +22,9 @@ use serde_json;
 use bitcoin::hashes::sha256d;
 use bitcoin::secp256k1::{self, SecretKey, Signature};
 use bitcoin::{Amount, OutPoint, PrivateKey, PublicKey};
-use rust_ocean::{Address, Block, BlockHeader, Transaction};
 use log::Level::Debug;
 use num_bigint::BigUint;
+use rust_ocean::{Address, Block, BlockHeader, Transaction};
 use serde::{Deserialize, Serialize};
 
 use error::*;
@@ -328,6 +328,12 @@ pub trait RpcApi: Sized {
     /// blockchain processing.
     fn get_blockchain_info(&self) -> Result<json::GetBlockchainInfoResult> {
         self.call("getblockchaininfo", &[])
+    }
+
+    /// Returns a data structure containing various state info specific
+    /// to the sidechain.
+    fn get_sidechain_info(&self) -> Result<json::GetSidechainInfoResult> {
+        self.call("getsidechaininfo", &[])
     }
 
     /// Returns the numbers of block in the longest chain.
@@ -750,7 +756,13 @@ pub trait RpcApi: Sized {
             opt_into_json(splitlargetxs)?,
             opt_into_json(balance_sort_type)?,
         ];
-        self.call("sendanytoaddress", handle_defaults(&mut args, &["".into(), "".into(), true.into(), false.into(), 1.into()]))
+        self.call(
+            "sendanytoaddress",
+            handle_defaults(
+                &mut args,
+                &["".into(), "".into(), true.into(), false.into(), 1.into()],
+            ),
+        )
     }
 
     /// Returns data about each connected network node as an array of
@@ -881,12 +893,18 @@ mod tests {
     fn test_raw_tx() {
         use rust_ocean::encode;
         let client = Client::new("http://localhost/".into(), Auth::None).unwrap();
-        let tx: rust_ocean::Transaction = encode::deserialize(&hex::decode("020000000001eb04b68e9a26d116046c76e8ff47332fb71dda90ff4bef5370f2\
-             5226d3bc09fc0000000000feffffff0201230f4f5d4b7c6fa845806ee4f67713\
-             459e1b69e8e60fcee2e4940c7a0d5de1b20100000002540bd71c001976a91448\
-             633e2c0ee9495dd3f9c43732c47f4702a362c888ac01230f4f5d4b7c6fa84580\
-             6ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b2010000000000000ce400\
-             0000000000").unwrap()).unwrap();
+        let tx: rust_ocean::Transaction = encode::deserialize(
+            &hex::decode(
+                "020000000001eb04b68e9a26d116046c76e8ff47332fb71dda90ff4bef5370f2\
+                 5226d3bc09fc0000000000feffffff0201230f4f5d4b7c6fa845806ee4f67713\
+                 459e1b69e8e60fcee2e4940c7a0d5de1b20100000002540bd71c001976a91448\
+                 633e2c0ee9495dd3f9c43732c47f4702a362c888ac01230f4f5d4b7c6fa84580\
+                 6ee4f67713459e1b69e8e60fcee2e4940c7a0d5de1b2010000000000000ce400\
+                 0000000000",
+            )
+            .unwrap(),
+        )
+        .unwrap();
 
         assert!(client.send_raw_transaction(&tx).is_err());
         assert!(client.send_raw_transaction(&encode::serialize(&tx)).is_err());

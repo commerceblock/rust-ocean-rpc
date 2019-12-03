@@ -292,6 +292,14 @@ pub enum Bip125Replaceable {
     Unknown,
 }
 
+/// Enum to represent to sendanytoaddress rpc result
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SendAnyToAddressResult {
+    Txid(sha256d::Hash),
+    Txids(Vec<sha256d::Hash>),
+}
+
 /// Enum to represent the BIP125 replaceable status for a transaction.
 #[derive(Clone, PartialEq, Eq, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -1128,6 +1136,22 @@ mod tests {
             }
         "#;
         assert_eq!(expected, serde_json::from_str(json).unwrap());
+    }
+
+    #[test]
+    fn test_SendAnyToAddressResult() {
+        let expected_single = SendAnyToAddressResult::Txid(hash!(
+            "4a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91"
+        ));
+        let json = r#""4a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91""#;
+        assert_eq!(expected_single, serde_json::from_str(json).unwrap());
+        let expected_many = SendAnyToAddressResult::Txids(vec![
+            hash!("5a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91"),
+            hash!("6a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91"),
+            hash!("7a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91"),
+        ]);
+        let json = r#"["5a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91","6a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91","7a5b5266e1750488395ac15c0376c9d48abf45e4df620777fe8cff096f57aa91"]"#;
+        assert_eq!(expected_many, serde_json::from_str(json).unwrap());
     }
 
     //TODO(stevenroose) coinbase variant

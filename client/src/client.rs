@@ -734,22 +734,25 @@ pub trait RpcApi: Sized {
             opt_into_json(substract_fee)?,
             opt_into_json(assetlabel)?,
         ];
-        self.call("sendtoaddress", handle_defaults(&mut args, &vec![null(); 6]))
+        self.call(
+            "sendtoaddress",
+            handle_defaults(&mut args, &["".into(), "".into(), true.into(), "CBT".into()]),
+        )
     }
 
     fn send_any_to_address(
         &self,
-        addr: &str,
-        amount: f64,
+        address: &Address,
+        amount: Amount,
         comment: Option<&str>,
         comment_to: Option<&str>,
         ignoreblindfail: Option<bool>,
         splitlargetxs: Option<bool>,
         balance_sort_type: Option<u32>,
-    ) -> Result<sha256d::Hash> {
+    ) -> Result<json::SendAnyToAddressResult> {
         let mut args = [
-            into_json(addr)?,
-            into_json(amount)?,
+            address.to_string().into(),
+            into_json(amount.as_btc())?,
             opt_into_json(comment)?,
             opt_into_json(comment_to)?,
             opt_into_json(ignoreblindfail)?,
